@@ -7,7 +7,7 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, nodeNameIsAtomic } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, nodeNameIsAtomic, nodeIsAtomic } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -220,14 +220,20 @@ check('分解出的子节点都带原理', kids.every((k) => (k.principle ?? '')
 check('分解出的子节点带原子字段（分钟/测试/实践）', kids.every((k) => (k.minutes ?? 0) <= 90 && !!k.test && !!k.practice))
 await db.nodes.bulkAdd(kids)
 
-// ---- 8.5 自动深度分解 ----
+// ---- 8.5 自动深度分解（frontier 队列 + 预算） ----
 const autoBefore = 3
 const autoGrown = await aiAutoDecompose(
   { id: sd.id, title: sd.title, reason: '', createdAt: Date.now(), status: 'active' },
   sdNodes.slice(0, autoBefore),
-  { maxRounds: 2, maxNodes: 50 }
+  { budget: 8, maxNodes: 50 }
 )
 check('自动深度分解会持续拆分叶子', autoGrown.length > autoBefore, 'got ' + autoGrown.length)
+
+// ---- 8.6 Goal Specification + 原子判定 ----
+const gs = await aiGoalSpec(sd)
+check('目标规格书含交付物与成功标准', !!gs.goal && !!gs.deliverable && gs.criteria.length >= 3, JSON.stringify(gs))
+const dk = (await aiDecomposeNode(td.root!, sd.title)).children
+check('演示分解出的叶子通过 nodeIsAtomic 硬判定', dk.every((k) => nodeIsAtomic(k)), 'first: ' + dk[0]?.name)
 const grown = buildTree(await db.nodes.where('lineId').equals(sd.id).toArray())
 renderTree({
   svgEl,

@@ -60,7 +60,12 @@ export default function NodePanel({
     try {
       const res = await aiDecomposeNode(node, lineTitle)
       if (res.done) {
-        toast('「' + node.name + '」已经是原子学习单元：' + (res.reason ?? '无需再分解'), 'info')
+        if (res.fill) {
+          await db.nodes.update(node.id, { ...res.fill, updatedAt: Date.now() })
+          toast('已补齐原子字段（掌握标准 + 实践任务），无需再拆', 'success')
+        } else {
+          toast('「' + node.name + '」已经是原子学习单元：' + (res.reason ?? '无需再分解'), 'info')
+        }
       } else {
         await db.nodes.bulkAdd(res.children)
         toast('已分解出 ' + res.children.length + ' 个更细小的原子能力！', 'success')

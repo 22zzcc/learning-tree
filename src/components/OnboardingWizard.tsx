@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, uid, getSettings } from '../db'
-import type { LearningLine, OnboardingSession, TreeNode, LineCategory } from '../types'
-import { aiChatQuestion, aiBuildDeepTree, aiBuildChecklistFromTree, isDemoMode } from '../lib/ai'
+import type { LearningLine, OnboardingSession, TreeNode, LineCategory, GoalSpec } from '../types'
+import { aiChatQuestion, aiBuildDeepTree, aiBuildChecklistFromTree, aiGoalSpec, isDemoMode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
 const CATEGORY_OPTIONS: { key: LineCategory; icon: string; label: string; hint: string }[] = [
@@ -21,6 +21,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [genMsg, setGenMsg] = useState('')
+  const [specEdit, setSpecEdit] = useState<{ goal: string; deliverable: string; criteriaText: string } | null>(null)
   const settings = useLiveQuery(() => getSettings(), [])
   const demo = settings ? isDemoMode(settings) : true
   const openLine = useAppStore((s) => s.openLine)
@@ -46,14 +47,12 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
         await db.onboarding.add(sess)
       })
       setLine(newLine)
-      setSession(sess)
-      const q = await aiChatQuestion(newLine, sess)
-      const withAi: OnboardingSession = {
-        ...sess,
-        messages: [{ id: uid(), role: 'ai', text: q, at: Date.now() }]
-      }
-      await db.onboarding.put(withAi)
-      setSession(withAi)
+      // Goal Specification：先把模糊目标澄清为可检验的终局能力定义
+      const spec = await aiGoalSpec(newLine)
+      const withSpec: OnboardingSession = { ...sess, goalSpec: spec, stage: 'goal' }
+      await db.onboarding.put(withSpec)
+      setSession(withSpec)
+      setSpecEdit({ goal: spec.goal, deliverable: spec.deliverable, criteriaText: spec.criteria.join('\n') })
     } catch (e) {
       toast('创建失败：' + (e as Error).message, 'error')
     } finally {
@@ -87,6 +86,45 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
     await db.onboarding.put(withAi)
     setSession(withAi)
     setBusy(false)
+  }
+
+  async function regenerateSpec() {
+    if (!line || busy) return
+    setBusy(true)
+    try {
+      const spec = await aiGoalSpec(line)
+      setSpecEdit({ goal: spec.goal, deliverable: spec.deliverable, criteriaText: spec.criteria.join('\n') })
+    } catch (e) {
+      toast('生成失败：' + (e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmGoalSpec() {
+    if (!line || !session || !specEdit || busy) return
+    setBusy(true)
+    try {
+      const criteria = specEdit.criteriaText.split('\n').map((s) => s.trim()).filter(Boolean)
+      if (!specEdit.deliverable.trim() || criteria.length === 0) {
+        toast('交付物和成功标准不能为空', 'error')
+        return
+      }
+      const spec: GoalSpec = { goal: specEdit.goal.trim(), deliverable: specEdit.deliverable.trim(), criteria }
+      const withSpec: OnboardingSession = { ...session, goalSpec: spec, stage: 'chat' }
+      await db.onboarding.put(withSpec)
+      const q = await aiChatQuestion(line, withSpec)
+      const withAi: OnboardingSession = {
+        ...withSpec,
+        messages: [...withSpec.messages, { id: uid(), role: 'ai', text: q, at: Date.now() }]
+      }
+      await db.onboarding.put(withAi)
+      setSession(withAi)
+    } catch (e) {
+      toast('失败：' + (e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
   }
 
   /** 生成能力图谱（先建规范图谱，再诊断，最后裁剪出个性化树） */
@@ -222,6 +260,44 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
               <button className="btn btn-primary" onClick={createLine} disabled={busy || !title.trim()}>
                 {busy ? '正在开始…' : '开始摸底 →'}
               </button>
+            </>
+          )}
+
+          {stage === 'goal' && specEdit && (
+            <>
+              <p className="muted" style={{ margin: 0 }}>
+                <b>第一步：目标规格书。</b>AI 把你的模糊目标澄清成了可检验的终局能力定义。你可以修改交付物和成功标准，确认后开始摸底。
+              </p>
+              <div className="form-row">
+                <label>🎯 终局能力目标</label>
+                <input
+                  type="text"
+                  value={specEdit.goal}
+                  onChange={(e) => setSpecEdit({ ...specEdit, goal: e.target.value })}
+                />
+              </div>
+              <div className="form-row">
+                <label>📦 交付物（学完后能拿出什么）</label>
+                <textarea
+                  rows={2}
+                  value={specEdit.deliverable}
+                  onChange={(e) => setSpecEdit({ ...specEdit, deliverable: e.target.value })}
+                />
+              </div>
+              <div className="form-row">
+                <label>✅ 成功标准（每行一条，可判定达成与否）</label>
+                <textarea
+                  rows={4}
+                  value={specEdit.criteriaText}
+                  onChange={(e) => setSpecEdit({ ...specEdit, criteriaText: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" onClick={confirmGoalSpec} disabled={busy}>
+                  {busy ? '处理中…' : '确认，开始摸底 →'}
+                </button>
+                <button className="btn" onClick={regenerateSpec} disabled={busy}>🔄 换一版规格书</button>
+              </div>
             </>
           )}
 

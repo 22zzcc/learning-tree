@@ -41,6 +41,21 @@ export default function TreeView({ lineId }: { lineId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineId])
 
+  // 剪枝：已完全掌握的子分支自动折叠（打开学习线时执行一次）
+  useEffect(() => {
+    if (!treeData) return
+    const fullyMastered = new Set<string>()
+    const isFullyMastered = (id: string): boolean => {
+      const kids = treeData.childrenMap.get(id) ?? []
+      return kids.length > 0 && kids.every((k) => k.state === 'mastered' && isFullyMastered(k.id))
+    }
+    treeData.byId.forEach((n) => {
+      if (isFullyMastered(n.id)) fullyMastered.add(n.id)
+    })
+    if (fullyMastered.size > 0) setCollapsed(fullyMastered)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineId])
+
   useEffect(() => {
     const svgEl = svgRef.current
     if (!svgEl || !treeData || !treeData.root) return

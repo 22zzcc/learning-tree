@@ -1,7 +1,7 @@
 // ---------- AI 编排：有 API Key 走 DeepSeek，没有则走演示模板 ----------
 
 import { getSettings, uid } from '../db'
-import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings } from '../types'
+import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
 import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, type DemoNodeSpec } from './demo'
 
@@ -12,6 +12,53 @@ export function isDemoMode(settings: { apiKey: string }): boolean {
 /** 解析某个模块实际生效的模型：模块覆盖 > 全局默认 */
 function moduleModel(settings: Settings, module: AiModule): string {
   return (settings.models?.[module] ?? '').trim() || settings.model || 'deepseek-chat'
+}
+
+// ---- 0. Goal Specification：把模糊目标收敛成可检验的终局能力定义 ----
+
+const GOAL_SPEC_SYSTEM = [
+  '你是学习目标澄清教练。用户的原始目标可能很模糊（如「大模型构建」），你需要把它收敛成一个可执行、可检验的能力目标。',
+  '输出 JSON：{"goal": "终局能力目标（一句话，能+动词+宾语）", "deliverable": "可检验的交付物", "criteria": ["成功标准1", "成功标准2", "成功标准3"]}',
+  '要求：',
+  '1. deliverable 必须具体、可检验（一个真实可交付的东西，如「一个能训练并自回归生成的小 GPT」）；',
+  '2. criteria 3~5 条，每条都能明确判定达成与否；',
+  '3. 目标有多个可能方向时（如「大模型构建」可以是从零实现 / 预训练 / 应用开发），选择最典型的方向并在 deliverable 中写明范围；',
+  '4. 用通俗中文；只输出 JSON。'
+].join('\n')
+
+export async function aiGoalSpec(line: LearningLine): Promise<GoalSpec> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) {
+    return {
+      goal: line.title,
+      deliverable: '一件用「' + line.title + '」完成的真实小成果（演示模式默认范围）',
+      criteria: ['能向别人讲清楚「' + line.title + '」是什么', '能独立完成一个最小实践', '能判断做得对不对']
+    }
+  }
+  const answer = await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: GOAL_SPEC_SYSTEM },
+      {
+        role: 'user',
+        content: '用户的原始学习目标：' + line.title + '\n学习动机：' + (line.reason || '未说明') + '\n请给出目标规格书。'
+      }
+    ],
+    { json: true, temperature: 0.5, model: moduleModel(settings, 'skeleton') }
+  )
+  try {
+    const data = extractJson<GoalSpec>(answer)
+    if (data.goal && data.deliverable && Array.isArray(data.criteria) && data.criteria.length > 0) {
+      return {
+        goal: data.goal.trim(),
+        deliverable: data.deliverable.trim(),
+        criteria: data.criteria.slice(0, 6).map((c) => c.trim())
+      }
+    }
+  } catch (e) {
+    console.warn('目标规格解析失败，使用原始目标', e)
+  }
+  return { goal: line.title, deliverable: '一件用「' + line.title + '」完成的真实成果', criteria: ['能独立完成一次最小实践', '能向别人讲清楚它是什么'] }
 }
 
 // ---- 1. 摸底聊天：AI 提出下一轮问题 ----
@@ -215,6 +262,10 @@ export async function aiGenerateTree(
         role: 'user',
         content: [
           '学习目标：' + line.title,
+          '目标规格书（root 必须按这个定义）：',
+          '- 终局能力：' + (session.goalSpec?.goal ?? line.title),
+          '- 交付物：' + (session.goalSpec?.deliverable ?? '未指定'),
+          '- 成功标准：' + (session.goalSpec?.criteria.join('；') ?? '未指定'),
           '学习线定位：' + (CATEGORY_GUIDE[line.category ?? 'expert'] ?? CATEGORY_GUIDE.expert),
           '学习动机：' + (line.reason || '未说明'),
           '摸底对话：\n' + history,
@@ -370,6 +421,8 @@ export interface DecomposeResult {
   done: boolean
   reason?: string
   children: TreeNode[]
+  /** AI 判定 done 但缺原子字段时，返回补齐的字段（由调用方写回节点） */
+  fill?: { minutes: number; test: string; practice: string }
 }
 
 function decomposeNodesToTree(g: DecomposeNode[], parent: TreeNode, now: number): TreeNode[] {
@@ -422,7 +475,8 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
   try {
     const data = extractJson<{ done?: boolean; reason?: string; nodes?: DecomposeNode[] }>(answer)
     if (data.done) {
-      // 代码级兜底：名称含连接词说明仍是复合能力，AI 误判 done 时强制再拆
+      // ===== P0：代码拥有最终停止权 =====
+      // 1) 名称含连接词 = 复合能力，无论 AI 怎么说都必须继续拆
       if (!nodeNameIsAtomic(parent.name)) {
         const retry = await deepseekChat(
           settings,
@@ -450,6 +504,45 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
         }
         return { done: false, children: demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id)) }
       }
+      // 2) 名称 OK 但缺原子字段（minutes/test/practice 不达标）→ 要求补齐或继续拆
+      if (!nodeIsAtomic(parent)) {
+        const retry = await deepseekChat(
+          settings,
+          [
+            { role: 'system', content: DECOMPOSE_SYSTEM },
+            {
+              role: 'user',
+              content:
+                '要判断的概念 X：' +
+                parent.name +
+                '（定义：' +
+                parent.definition +
+                '）\n' +
+                '代码校验发现 X 尚不满足原子单元定义（需要：单一概念名称 + 30~90 分钟 + 独立测试 test + 最小实践 practice）。\n' +
+                '请二选一：\n' +
+                'A. 如果 X 已经足够小，补齐原子字段并输出：{"done": true, "minutes": 45, "test": "...", "practice": "...", "reason": "..."}\n' +
+                'B. 如果 X 太大，输出：{"nodes": [子能力...]}'
+            }
+          ],
+          { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose') }
+        )
+        try {
+          const d2 = extractJson<{ done?: boolean; reason?: string; minutes?: number; test?: string; practice?: string; nodes?: DecomposeNode[] }>(retry)
+          if (d2.nodes && d2.nodes.length > 0) {
+            return { done: false, children: decomposeNodesToTree(d2.nodes, parent, Date.now()) }
+          }
+          if (d2.done && d2.minutes && d2.test && d2.practice) {
+            const fill = { minutes: d2.minutes, test: d2.test.trim(), practice: d2.practice.trim() }
+            const temp: TreeNode = { ...parent, ...fill }
+            if (nodeIsAtomic(temp)) {
+              return { done: true, reason: d2.reason ?? data.reason, children: [], fill }
+            }
+          }
+        } catch (e2) {
+          console.warn('原子字段补齐失败，用演示模板兜底', e2)
+        }
+        return { done: false, children: demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id)) }
+      }
       return { done: true, reason: data.reason, children: [] }
     }
     if (data.nodes && data.nodes.length > 0) {
@@ -472,16 +565,18 @@ export async function aiAutoDecompose(
   line: LearningLine,
   nodes: TreeNode[],
   opts: {
-    maxRounds?: number
+    /** 总分解操作次数预算（代替固定轮数，保证「拆到底」由队列耗尽而非轮数决定） */
+    budget?: number
     maxNodes?: number
-    onProgress?: (round: number, doneInRound: number, batchSize: number, totalNodes: number) => void
+    onProgress?: (processed: number, budget: number, totalNodes: number) => void
   } = {}
 ): Promise<TreeNode[]> {
-  const maxRounds = opts.maxRounds ?? 4
+  const budget = opts.budget ?? 120
   const maxNodes = opts.maxNodes ?? 300
   const CONCURRENCY = 8
   const doneIds = new Set<string>()
   let current = nodes
+  let processed = 0
 
   const childrenOf = (list: TreeNode[]): Map<string, TreeNode[]> => {
     const cm = new Map<string, TreeNode[]>()
@@ -502,45 +597,54 @@ export async function aiAutoDecompose(
     return dm
   }
 
-  for (let round = 1; round <= maxRounds; round++) {
+  // Frontier 队列：BFS 逐层拆（先浅后深），保证整棵树粒度均衡
+  const collectLeaves = (): TreeNode[] => {
     const cm = childrenOf(current)
     const dm = depthOf(current)
-    const leaves = current.filter((n) => (cm.get(n.id)?.length ?? 0) === 0 && !doneIds.has(n.id) && (dm.get(n.id) ?? 0) < 12)
-    if (leaves.length === 0) break
-    const batch = leaves.slice(0, 24)
-    let addedInRound = 0
-    let doneInRound = 0
-    const queue = [...batch]
+    return current.filter((n) => (cm.get(n.id)?.length ?? 0) === 0 && !doneIds.has(n.id) && (dm.get(n.id) ?? 0) < 12)
+  }
+
+  let queue = collectLeaves()
+  while (queue.length > 0 && processed < budget && current.length < maxNodes) {
+    const batch = queue.splice(0, CONCURRENCY)
     await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-        while (queue.length > 0) {
-          const leaf = queue.shift()!
-          try {
-            const res = await aiTryDecompose(leaf, line.title)
-            if (res.done) {
-              doneIds.add(leaf.id)
-            } else if (res.children.length > 0) {
-              if (current.length + res.children.length <= maxNodes) {
-                current = [...current, ...res.children]
-                addedInRound++
-              } else {
-                doneIds.add(leaf.id)
-              }
+      batch.map(async (leaf) => {
+        processed++
+        try {
+          const res = await aiTryDecompose(leaf, line.title)
+          if (res.fill) {
+            // AI 补齐了原子字段：写回节点并标记完成
+            const target = current.find((n) => n.id === leaf.id)
+            if (target) {
+              target.minutes = res.fill.minutes
+              target.test = res.fill.test
+              target.practice = res.fill.practice
+              target.updatedAt = Date.now()
+            }
+            doneIds.add(leaf.id)
+          } else if (res.done) {
+            doneIds.add(leaf.id)
+          } else if (res.children.length > 0) {
+            if (current.length + res.children.length <= maxNodes) {
+              current = [...current, ...res.children]
+              // 新叶子进入队列尾部（BFS：先处理完当前层，再处理下一层）
+              const dm = depthOf(current)
+              queue.push(...res.children.filter((c) => (dm.get(c.id) ?? 0) < 12))
             } else {
               doneIds.add(leaf.id)
             }
-          } catch (e) {
-            console.warn('叶子自动分解失败：', leaf.name, e)
+          } else {
             doneIds.add(leaf.id)
           }
-          doneInRound++
-          opts.onProgress?.(round, doneInRound, batch.length, current.length)
+        } catch (e) {
+          console.warn('叶子自动分解失败：', leaf.name, e)
+          doneIds.add(leaf.id)
         }
+        opts.onProgress?.(processed, budget, current.length)
       })
     )
-    if (current.length >= maxNodes) break
-    // 本轮没有任何叶子还能拆 → 收工
-    if (addedInRound === 0) break
+    // 队列耗尽时再补采一次（处理因并发时序漏掉的叶子）
+    if (queue.length === 0) queue = collectLeaves()
   }
   return current
 }
@@ -551,7 +655,7 @@ export async function aiBuildDeepTree(
   session: OnboardingSession,
   opts: { rebuildDemo?: boolean; onProgress?: (percent: number, msg: string) => void } = {}
 ): Promise<GenerateTreeResult> {
-  opts.onProgress?.(5, '正在生成知识树骨架…')
+  opts.onProgress?.(5, '正在生成能力图谱骨架…')
   const result = await aiGenerateTree(line, session, { rebuildDemo: opts.rebuildDemo })
   const settings = await getSettings()
   if (isDemoMode(settings) || settings.depth !== 'deep') {
@@ -560,21 +664,22 @@ export async function aiBuildDeepTree(
   }
   opts.onProgress?.(20, '骨架完成，开始自动深度分解…')
   const before = result.nodes.length
-  const maxRounds = 4
+  const budget = 120
   result.nodes = await aiAutoDecompose(line, result.nodes, {
-    maxRounds,
+    budget,
     maxNodes: 300,
-    onProgress: (round, doneInRound, batchSize, totalNodes) => {
-      const percent = Math.min(95, 20 + (round - 1) * 20 + Math.round((doneInRound / Math.max(1, batchSize)) * 20))
-      opts.onProgress?.(percent, '自动深度分解：第 ' + round + ' 轮 ' + doneInRound + '/' + batchSize + '，已生成 ' + totalNodes + ' 个节点')
+    onProgress: (processed, totalBudget, totalNodes) => {
+      const percent = Math.min(95, 20 + Math.round((processed / Math.max(1, totalBudget)) * 75))
+      opts.onProgress?.(percent, '自动深度分解：已判断 ' + processed + ' 个叶子，已生成 ' + totalNodes + ' 个节点')
     }
   })
   opts.onProgress?.(100, '完成')
   if (result.nodes.length > before) {
-    result.note = (result.note ? result.note + '；' : '') + '已自动深度分解：' + before + ' → ' + result.nodes.length + ' 个节点（直到 AI 认为无法再拆为止）'
+    result.note = (result.note ? result.note + '；' : '') + '已自动深度分解：' + before + ' → ' + result.nodes.length + ' 个节点（直到叶子耗尽或达到上限）'
   }
   return result
 }
+
 
 // ---- 5. 点亮边：生成「为什么关联 + 相似例子」 ----
 

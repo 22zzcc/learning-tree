@@ -91,12 +91,21 @@ export interface ChecklistItem {
   state: 'known' | 'fuzzy' | 'unknown'
 }
 
+/** 目标规格书：Goal Specification 阶段的产出 */
+export interface GoalSpec {
+  goal: string
+  deliverable: string
+  criteria: string[]
+}
+
 export interface OnboardingSession {
   id: string
   lineId: string
-  stage: 'chat' | 'checklist' | 'generating' | 'done'
+  stage: 'goal' | 'chat' | 'checklist' | 'generating' | 'done'
   messages: ChatMessage[]
   checklist: ChecklistItem[]
+  /** 目标规格书（澄清模糊目标后的终局能力定义） */
+  goalSpec?: GoalSpec
   round: number          // 已进行的聊天轮数（共 3 轮）
 }
 
