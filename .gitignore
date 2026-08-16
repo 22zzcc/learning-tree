@@ -1,0 +1,18 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-test/
+
+# 缓存与日志
+.npm-cache/
+*.log
+
+# 测试/调试临时目录
+.chrome-tmp*/
+.dsh-vision-toolkit/
+
+# 系统
+.DS_Store
+Thumbs.db
