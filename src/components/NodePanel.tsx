@@ -96,17 +96,6 @@ export default function NodePanel({
         <p>{node.example}</p>
       </div>
 
-      {node.pitfalls && node.pitfalls.length > 0 && (
-        <div className="section">
-          <h4>⚠️ 易错点</h4>
-          <ul className="example-list">
-            {node.pitfalls.map((p, i) => (
-              <li key={i}>{p}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       <div className="section">
         <h4>💡 为什么重要</h4>
         <p>{node.whyImportant}</p>

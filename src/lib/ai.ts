@@ -90,15 +90,15 @@ function treeSystemPrompt(depth: DecomposeDepth): string {
     '你是一位知识图谱学习教练。根据用户的学习目标与摸底结果，生成一棵「垂直知识树」（根在上，向下分支）。',
     '输出必须是 JSON，格式：',
     '{',
-    '  "root": { "name": "学习目标", "definition": "...", "example": "...", "whyImportant": "...", "principle": "...", "pitfalls": [] },',
+    '  "root": { "name": "学习目标", "definition": "...", "example": "...", "whyImportant": "...", "principle": "..." },',
     '  "nodes": [',
-    '    { "name": "概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理", "pitfalls": ["易错点"], "parentPath": ["从根到父节点的概念名数组"], "mastered": false, "fuzzy": false }',
+    '    { "name": "概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理", "parentPath": ["从根到父节点的概念名数组"], "mastered": false, "fuzzy": false }',
     '  ]',
     '}',
     '硬性要求：',
     rules,
     '2. 粒度自适应：每片叶子必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」；不满足就继续分解，宁可分解过头，也不要留下看不懂的叶子。',
-    '3. principle 是「这个知识点背后的原理是什么」，用一句最通俗的话解释它为什么成立/为什么这样设计；pitfalls 是新手最常见的 0~2 个易错点。',
+    '3. principle 是「这个知识点背后的原理是什么」，用一句最通俗的话解释它为什么成立/为什么这样设计；不要输出易错点、误区等负面内容，只讲正确概念。',
     '4. 用户已掌握的概念仍保留在树上，标记 mastered=true（显示为绿色）；用户模糊的概念标记 fuzzy=true（显示为黄色），不标 mastered。',
     '5. 所有文字用通俗中文，面向该领域新手；definition 1~2 句，example 必须具体（带数字或场景）。',
     '6. 只输出 JSON，不要输出任何解释。'
@@ -241,7 +241,7 @@ const CATEGORY_GUIDE: Record<LineCategory, string> = {
 
 const DECOMPOSE_SYSTEM = [
   '你是知识图谱学习教练。用户觉得概念「X」还不够细，需要把它分解成更细小的知识领域。',
-  '输出 JSON：{"nodes": [{"name": "子概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理", "pitfalls": ["易错点"]}]}',
+  '输出 JSON：{"nodes": [{"name": "子概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理"}]}',
   '硬性要求：',
   '1. 分解成 3~6 个子概念，分支不设上限；',
   '2. 每个子概念必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」，达不到就拆得更细；',

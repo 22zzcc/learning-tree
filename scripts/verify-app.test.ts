@@ -184,6 +184,8 @@ check('短除法根节点带原理字段', (sdRoot.principle ?? '').length > 10,
 const specDepth = (s: any): number => 1 + Math.max(0, ...((s.children ?? []) as any[]).map((c) => specDepth(c)))
 const tpl = demoTreeSpec('测试目标', '测试原因')
 check('演示模板深度 ≥ 4 层', specDepth(tpl) >= 4, 'got ' + specDepth(tpl))
+check('演示模板不含误区分支', !JSON.stringify(tpl).includes('误区'))
+check('演示数据不含易错点', allNodes.every((n) => !n.pitfalls || n.pitfalls.length === 0))
 
 // ---- 8. 继续分解（分支不设上限） ----
 const kids = await aiDecomposeNode(td.root!, sd.title)
