@@ -22,30 +22,53 @@ export async function deepseekChat(
 ): Promise<string> {
   const url = settings.apiBase.replace(/\/+$/, '') + '/chat/completions'
   const reasoner = isReasonerModel(settings.model || 'deepseek-chat')
-  const body: Record<string, unknown> = {
-    model: settings.model || 'deepseek-chat',
-    messages,
-    max_tokens: opts.maxTokens ?? 4096
+
+  const buildBody = (includeExtras: boolean): Record<string, unknown> => {
+    const body: Record<string, unknown> = {
+      model: settings.model || 'deepseek-chat',
+      messages,
+      max_tokens: opts.maxTokens ?? 4096
+    }
+    // 已知推理模型（reasoner/r1）不接受 temperature / response_format
+    // 未知模型（如 v4-flash / v4-pro）先按支持处理，失败时自动去掉重试
+    if (!reasoner && includeExtras) {
+      body.temperature = opts.temperature ?? 0.6
+      if (opts.json) body.response_format = { type: 'json_object' }
+    }
+    return body
   }
-  // 推理模型不接受 temperature / response_format，由 prompt + 提取器保证 JSON
-  if (!reasoner) {
-    body.temperature = opts.temperature ?? 0.6
-    if (opts.json) body.response_format = { type: 'json_object' }
+
+  const attempt = async (includeExtras: boolean): Promise<string> => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + settings.apiKey
+      },
+      body: JSON.stringify(buildBody(includeExtras))
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      const err = new Error('API 请求失败 (' + res.status + ')：' + text.slice(0, 300))
+      ;(err as any).httpStatus = res.status
+      ;(err as any).responseText = text
+      throw err
+    }
+    const data = await res.json()
+    return data?.choices?.[0]?.message?.content ?? ''
   }
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + settings.apiKey
-    },
-    body: JSON.stringify(body)
-  })
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error('API 请求失败 (' + res.status + ')：' + text.slice(0, 300))
+
+  try {
+    return await attempt(true)
+  } catch (e) {
+    const err = e as any
+    const retriable = /response_format|temperature|json_object|not support|不支持|invalid parameter/i.test(String(err.responseText ?? ''))
+    if (err.httpStatus === 400 && retriable) {
+      console.warn('[deepseek] 该模型不接受 JSON/temperature 参数，自动去掉后重试')
+      return await attempt(false)
+    }
+    throw err
   }
-  const data = await res.json()
-  return data?.choices?.[0]?.message?.content ?? ''
 }
 
 /** 从 AI 返回的文本中提取 JSON（兼容代码块包裹的情况） */

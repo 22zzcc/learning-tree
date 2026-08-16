@@ -28,9 +28,11 @@ npm run dev        # 打开 http://localhost:5173
 1. 到 [platform.deepseek.com](https://platform.deepseek.com) 注册并创建 API Key；
 2. 打开应用「⚙️ 设置」页，粘贴 Key（仅保存在本机浏览器 IndexedDB，不上传）；
 3. 选择模型与分解深度：
-   - **deepseek-chat**：普通模型，速度快；
-   - **deepseek-reasoner**：推理模型，知识分解更深入、原理讲得更透（慢）；
+   - **deepseek-chat**：DeepSeek 官方普通模型，速度快；
+   - **deepseek-reasoner**：DeepSeek 官方推理模型，知识分解更深入、原理讲得更透（慢）；
+   - **v4-flash / v4-pro**：其他服务的模型名，需要把「接口地址」改成提供该模型的服务；
    - **深度模式**：5~8 层、40~150 节点、分支不设上限；**标准模式**：3~5 层、15~40 节点；
+   - 模型不支持 JSON 模式时会自动降级重试，无需手动设置；
 4. 新建学习线即可获得真实的 AI 摸底、个性化知识树、继续分解与「边点亮」生成。
 
 不配置 Key 时自动进入**演示模式**（内置 4 层模板），所有功能仍可完整体验。
