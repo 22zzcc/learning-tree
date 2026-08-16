@@ -262,6 +262,7 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 }
 .gen-ai { background: var(--accent-soft); color: var(--accent); }
 .gen-demo { background: #fdf6e3; color: #8a6116; }
+.gen-legacy { background: #eef2f0; color: #8a9891; }
 .tree-topbar .stats { color: var(--muted); font-size: 12px; }
 .tree-topbar .spacer { flex: 1; }
 

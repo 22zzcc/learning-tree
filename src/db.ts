@@ -36,6 +36,7 @@ export async function getSettings(): Promise<Settings> {
     depth: 'deep',
     models: {},
     skeletonNoThinking: true,
+    decomposeNoThinking: true,
     demoVersion: 0
   }
 }

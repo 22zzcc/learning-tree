@@ -13,6 +13,8 @@ export interface ChatOpts {
   model?: string
   /** V4 混合思考模型：thinking.type = enabled/disabled；缺省时跟随模型默认 */
   thinking?: 'enabled' | 'disabled'
+  /** 请求超时（毫秒），默认 120 秒；超时会报错而不是无限转圈 */
+  timeoutMs?: number
 }
 
 /**
@@ -46,14 +48,28 @@ export async function deepseekChat(
   }
 
   const attempt = async (includeExtras: boolean): Promise<string> => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + settings.apiKey
-      },
-      body: JSON.stringify(buildBody(includeExtras))
-    })
+    const controller = new AbortController()
+    const timeoutMs = opts.timeoutMs ?? 120000
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer ' + settings.apiKey
+        },
+        body: JSON.stringify(buildBody(includeExtras)),
+        signal: controller.signal
+      })
+    } catch (e) {
+      clearTimeout(timer)
+      if ((e as Error).name === 'AbortError') {
+        throw new Error('API 请求超时（' + Math.round(timeoutMs / 1000) + ' 秒无响应，可能模型思考过久或网络问题）')
+      }
+      throw new Error('API 网络请求失败：' + (e as Error).message)
+    }
+    clearTimeout(timer)
     if (!res.ok) {
       const text = await res.text().catch(() => '')
       const err = new Error('API 请求失败 (' + res.status + ')：' + text.slice(0, 300))

@@ -544,7 +544,7 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose') }
+    { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose'), thinking: settings.decomposeNoThinking ? 'disabled' : undefined }
   )
   try {
     const data = extractJson<{ done?: boolean; reason?: string; nodes?: DecomposeNode[] }>(answer)
@@ -566,7 +566,7 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
                 '\n注意：X 的名称里含有连接词（与/和/及/、），说明它仍是复合能力，不符合原子单元定义，必须继续拆成单一能力。请输出 nodes。'
             }
           ],
-          { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose') }
+          { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose'), thinking: settings.decomposeNoThinking ? 'disabled' : undefined }
         )
         try {
           const d2 = extractJson<{ nodes?: DecomposeNode[] }>(retry)
@@ -598,7 +598,7 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
                 'B. 如果 X 太大，输出：{"nodes": [子能力...]}'
             }
           ],
-          { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose') }
+          { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose'), thinking: settings.decomposeNoThinking ? 'disabled' : undefined }
         )
         try {
           const d2 = extractJson<{ done?: boolean; reason?: string; minutes?: number; test?: string; practice?: string; nodes?: DecomposeNode[] }>(retry)
@@ -697,6 +697,8 @@ export async function aiAutoDecompose(
   let queue = collectLeaves()
   while (queue.length > 0 && processed < budget && current.length < maxNodes) {
     const batch = queue.splice(0, CONCURRENCY)
+    // 批次开始立即回报一次，避免 UI 长时间停在旧数字上
+    opts.onProgress?.(processed, budget, current.length)
     await Promise.all(
       batch.map(async (leaf) => {
         processed++
@@ -762,6 +764,9 @@ export async function aiBuildDeepTree(
   opts.onProgress?.(20, '骨架完成，开始自动深度分解…')
   const before = result.nodes.length
   const budget = 120
+  if (!settings.decomposeNoThinking) {
+    opts.onProgress?.(21, '分解使用思考模式：每次约 30~90 秒，请耐心等待（可在设置页关闭）')
+  }
   const auto = await aiAutoDecompose(line, result.nodes, {
     budget,
     maxNodes: 300,

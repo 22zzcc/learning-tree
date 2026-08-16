@@ -207,6 +207,11 @@ export default function TreeView({ lineId }: { lineId: string }) {
       <div className="tree-topbar">
         <button className="btn btn-sm" onClick={() => useAppStore.getState().go('home')}>← 学习线</button>
         <span className="title">{line?.title ?? '知识树'}</span>
+        {line?.generation === undefined && stats && stats.total > 0 && (
+          <span className="gen-badge gen-legacy" title="这条学习线是旧版本生成的，没有溯源信息。点「重新构建」即可获得溯源。">
+            ⬜ 无溯源（旧版本生成）
+          </span>
+        )}
         {line?.generation && (
           <span
             className={'gen-badge ' + (line.generation.source === 'demo' ? 'gen-demo' : 'gen-ai')}

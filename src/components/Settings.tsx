@@ -145,7 +145,16 @@ export default function Settings() {
               onChange={(e) => saveSettings({ skeletonNoThinking: e.target.checked }).then(() => toast('已保存', 'success'))}
               style={{ width: 'auto' }}
             />
-            骨架 JSON 序列化关闭思考模式（V4 混合思考模型：结构化输出更快更稳，推荐）
+            骨架 JSON 序列化关闭思考模式（结构化输出更快更稳，推荐）
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={settings.decomposeNoThinking !== false}
+              onChange={(e) => saveSettings({ decomposeNoThinking: e.target.checked }).then(() => toast('已保存', 'success'))}
+              style={{ width: 'auto' }}
+            />
+            自动深度分解关闭思考模式（拆分既有知识不需要长思考，速度提升 5~10 倍，推荐；拆解质量要求极高时可关闭此开关）
           </label>
         </div>
         <div>

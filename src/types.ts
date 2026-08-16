@@ -78,6 +78,8 @@ export interface Settings {
   models?: Partial<Record<AiModule, string>>
   /** 骨架 JSON 序列化关闭思考模式（V4 混合思考模型：结构化输出更快更稳） */
   skeletonNoThinking: boolean
+  /** 自动/手动分解关闭思考模式（拆分既有知识不需要长思考，速度提升 5~10 倍） */
+  decomposeNoThinking: boolean
   /** 演示数据版本号：升级演示数据时递增，用于老用户刷新 */
   demoVersion: number
 }
