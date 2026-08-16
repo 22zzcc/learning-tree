@@ -420,21 +420,31 @@ export async function aiAutoDecompose(
   return current
 }
 
-/** 完整构建流程：生成骨架 → （深度模式自动）分解到足够细小 */
+/** 完整构建流程：生成骨架 → （深度模式自动）分解到足够细小。onProgress 回报 0~100 百分比。 */
 export async function aiBuildDeepTree(
   line: LearningLine,
   session: OnboardingSession,
-  opts: { rebuildDemo?: boolean; onProgress?: (msg: string) => void } = {}
+  opts: { rebuildDemo?: boolean; onProgress?: (percent: number, msg: string) => void } = {}
 ): Promise<GenerateTreeResult> {
+  opts.onProgress?.(5, '正在生成知识树骨架…')
   const result = await aiGenerateTree(line, session, { rebuildDemo: opts.rebuildDemo })
   const settings = await getSettings()
-  if (isDemoMode(settings) || settings.depth !== 'deep') return result
+  if (isDemoMode(settings) || settings.depth !== 'deep') {
+    opts.onProgress?.(100, '完成')
+    return result
+  }
+  opts.onProgress?.(30, '骨架完成，开始自动深度分解…')
   const before = result.nodes.length
+  const maxRounds = 3
   result.nodes = await aiAutoDecompose(line, result.nodes, {
-    maxRounds: 3,
+    maxRounds,
     maxNodes: 300,
-    onProgress: (round, total) => opts.onProgress?.('自动深度分解中：第 ' + round + ' 轮，已生成 ' + total + ' 个节点…')
+    onProgress: (round, total) => {
+      const percent = Math.min(95, 30 + Math.round((round / maxRounds) * 65))
+      opts.onProgress?.(percent, '自动深度分解：第 ' + round + ' 轮，已生成 ' + total + ' 个节点')
+    }
   })
+  opts.onProgress?.(100, '完成')
   if (result.nodes.length > before) {
     result.note = (result.note ? result.note + '；' : '') + '已自动深度分解：' + before + ' → ' + result.nodes.length + ' 个节点（直到 AI 认为无法再拆为止）'
   }

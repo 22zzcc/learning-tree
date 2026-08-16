@@ -26,6 +26,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tick, setTick] = useState(0)
   const [rebuilding, setRebuilding] = useState(false)
+  const [rebuildPct, setRebuildPct] = useState(0)
   const selectedId = useAppStore((s) => s.selectedNodeId)
   const focusId = useAppStore((s) => s.focusNodeId)
   const selectNode = useAppStore((s) => s.selectNode)
@@ -125,6 +126,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
     )
     if (!ok) return
     setRebuilding(true)
+    setRebuildPct(0)
     try {
       // 沿用原有摸底会话（聊天记录 + 自评清单）；演示线没有会话则用空会话
       const existing = await db.onboarding.where('lineId').equals(lineId).first()
@@ -143,7 +145,10 @@ export default function TreeView({ lineId }: { lineId: string }) {
         if (n.state === 'mastered') masteredNames.add(n.name)
         else if (n.state === 'fuzzy') fuzzyNames.add(n.name)
       })
-      const result = await aiBuildDeepTree(line, session, { rebuildDemo: true, onProgress: (msg) => toast(msg, 'info') })
+      const result = await aiBuildDeepTree(line, session, {
+        rebuildDemo: true,
+        onProgress: (percent) => setRebuildPct(percent)
+      })
       const newNodes = result.nodes
       // 回填旧状态（按名称匹配）
       newNodes.forEach((n) => {
@@ -167,6 +172,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
       toast('重建失败：' + (e as Error).message, 'error')
     } finally {
       setRebuilding(false)
+      setRebuildPct(0)
     }
   }
 
@@ -189,8 +195,8 @@ export default function TreeView({ lineId }: { lineId: string }) {
         <button className="btn btn-sm" onClick={expandAll}>全部展开</button>
         <button className="btn btn-sm" onClick={collapseAll}>全部折叠</button>
         <button className="btn btn-sm" onClick={resetView}>重置视图</button>
-        <button className="btn btn-sm" onClick={rebuildTree} disabled={rebuilding} title="用 AI 重新生成整棵知识树，保留已掌握标记">
-          {rebuilding ? '重建中…' : '🔄 重新构建'}
+        <button className="btn btn-sm" onClick={rebuildTree} disabled={rebuilding} title="用 AI 重新生成整棵知识树并自动分解到底，保留已掌握标记">
+          {rebuilding ? '重建中 ' + rebuildPct + '%' : '🔄 重新构建'}
         </button>
         <button className="btn btn-sm" onClick={() => svgRef.current && exportSvg(svgRef.current, (line?.title ?? '知识树') + '.svg')}>
           导出 SVG

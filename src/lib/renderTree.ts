@@ -134,10 +134,10 @@ export function renderTree(opts: RenderTreeOpts): void {
   filter
     .append('feDropShadow')
     .attr('dx', 0)
-    .attr('dy', 2)
-    .attr('stdDeviation', 4)
+    .attr('dy', 1)
+    .attr('stdDeviation', 2.5)
     .attr('flood-color', '#1e3c2d')
-    .attr('flood-opacity', 0.14)
+    .attr('flood-opacity', 0.06)
 
   const zoomG = svg.append('g').attr('class', 'zoom-group')
   const content = zoomG.append('g').attr('class', 'content-group')
@@ -179,9 +179,9 @@ export function renderTree(opts: RenderTreeOpts): void {
       .attr('class', 'link' + (lit ? ' lit' : ''))
       .attr('d', link(pts))
       .attr('fill', 'none')
-      .attr('stroke', lit ? '#2e9e5b' : '#b9c6c0')
-      .attr('stroke-width', lit ? 2 : 1.4)
-      .attr('stroke-dasharray', lit ? '6 5' : '4 5')
+      .attr('stroke', lit ? '#2e9e5b' : '#d1d1d6')
+      .attr('stroke-width', lit ? 1.6 : 1.2)
+      .attr('stroke-dasharray', lit ? '4 4' : '3 4')
     if (lit && l.target.data.edgeWhy) {
       const mx = (pts.source.x + pts.target.x) / 2
       const my = (pts.source.y + pts.target.y) / 2
@@ -230,7 +230,7 @@ export function renderTree(opts: RenderTreeOpts): void {
     .attr('cy', (d) => cardSize(d).h / 2)
     .attr('r', 9)
     .attr('fill', '#ffffff')
-    .attr('stroke', '#b8c4c0')
+    .attr('stroke', '#d1d1d6')
     .style('cursor', 'pointer')
     .on('click', (event, d) => {
       event.stopPropagation()
@@ -242,7 +242,7 @@ export function renderTree(opts: RenderTreeOpts): void {
     .attr('y', (d) => cardSize(d).h / 2 + 3)
     .attr('text-anchor', 'middle')
     .attr('font-size', 11)
-    .attr('fill', '#68766f')
+    .attr('fill', '#8e8e93')
     .style('cursor', 'pointer')
     .text((d) => (collapsed.has(d.data.id) ? '+' : '−'))
     .on('click', (event, d) => {
@@ -274,10 +274,10 @@ export function renderTree(opts: RenderTreeOpts): void {
       .attr('y', -h / 2)
       .attr('width', w)
       .attr('height', h)
-      .attr('rx', 10)
-      .attr('fill', STATE_BG[d.data.state])
-      .attr('stroke', selected ? '#2e7d5b' : STATE_COLOR[d.data.state])
-      .attr('stroke-width', selected ? 3 : 1.5)
+      .attr('rx', 14)
+      .attr('fill', d.depth === 0 ? '#f5f5f7' : STATE_BG[d.data.state])
+      .attr('stroke', selected ? '#2e9e5b' : 'none')
+      .attr('stroke-width', selected ? 2.5 : 0)
       .attr('filter', 'url(#card-shadow)')
       .style('cursor', 'pointer')
 
@@ -287,9 +287,9 @@ export function renderTree(opts: RenderTreeOpts): void {
         .attr('x', 0)
         .attr('y', -h / 2 + 14)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 10)
-        .attr('font-weight', 700)
-        .attr('fill', '#68766f')
+        .attr('font-size', 9.5)
+        .attr('font-weight', 600)
+        .attr('fill', '#8e8e93')
         .text(d.num ?? '')
     }
     const chars = [...d.data.name]
@@ -299,9 +299,9 @@ export function renderTree(opts: RenderTreeOpts): void {
         .attr('x', 0)
         .attr('y', -h / 2 + (d.depth > 0 ? 32 : 26) + i * 16)
         .attr('text-anchor', 'middle')
-        .attr('font-size', d.depth === 0 ? 15 : 14)
-        .attr('font-weight', 600)
-        .attr('fill', '#243b33')
+        .attr('font-size', d.depth === 0 ? 15 : 13.5)
+        .attr('font-weight', 500)
+        .attr('fill', '#1d1d1f')
         .text(ch)
     })
     // 状态圆点（卡片底部）

@@ -95,7 +95,7 @@ export const STATE_COLOR: Record<NodeState, string> = {
 
 export const STATE_BG: Record<NodeState, string> = {
   unlearned: '#ffffff',
-  learning: '#fff6e5',
-  mastered: '#e9f7ef',
-  fuzzy: '#fdf8e3'
+  learning: '#fff9ef',
+  mastered: '#eef8f2',
+  fuzzy: '#fdf9ec'
 }

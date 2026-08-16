@@ -81,7 +81,7 @@ renderTree({
 check('渲染出 16 个节点', svgEl.querySelectorAll('g.node').length === 16, 'got ' + svgEl.querySelectorAll('g.node').length)
 check('渲染出 15 条边', svgEl.querySelectorAll('path.link').length === 15, 'got ' + svgEl.querySelectorAll('path.link').length)
 check('渲染出 9 条已点亮边的「为什么」标签', svgEl.querySelectorAll('text.edge-label').length === 9, 'got ' + svgEl.querySelectorAll('text.edge-label').length)
-check('根节点带选中描边', (svgEl.querySelector('g.node rect')?.getAttribute('stroke-width') ?? '') === '3')
+check('根节点带选中描边', (svgEl.querySelector('g.node rect')?.getAttribute('stroke-width') ?? '') === '2.5')
 const toggles = svgEl.querySelectorAll('circle.collapse-toggle')
 check('有子节点的节点带折叠按钮（6 个）', toggles.length === 6, 'got ' + toggles.length)
 check('所有边路径非空', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('d') ?? '').length > 10))

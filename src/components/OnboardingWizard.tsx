@@ -119,7 +119,9 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
     setGenMsg('AI 正在生成你的知识树骨架（标准模式约 10~30 秒，深度模式约 1~3 分钟）…')
     try {
       const finalSession = skipChecklist ? { ...session, checklist: [], stage: 'generating' as const } : { ...session, stage: 'generating' as const }
-      const result = await aiBuildDeepTree(line, finalSession, { onProgress: (msg) => setGenMsg(msg) })
+      const result = await aiBuildDeepTree(line, finalSession, {
+        onProgress: (percent, msg) => setGenMsg(msg + '（' + percent + '%）')
+      })
       if (result.note) toast(result.note, 'info')
       await db.nodes.bulkAdd(result.nodes)
       await db.onboarding.put({ ...finalSession, stage: 'done' })
