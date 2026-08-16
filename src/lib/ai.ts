@@ -1,12 +1,17 @@
 // ---------- AI 编排：有 API Key 走 DeepSeek，没有则走演示模板 ----------
 
 import { getSettings, uid } from '../db'
-import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory } from '../types'
+import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
 import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, type DemoNodeSpec } from './demo'
 
 export function isDemoMode(settings: { apiKey: string }): boolean {
   return !settings.apiKey
+}
+
+/** 解析某个模块实际生效的模型：模块覆盖 > 全局默认 */
+function moduleModel(settings: Settings, module: AiModule): string {
+  return (settings.models?.[module] ?? '').trim() || settings.model || 'deepseek-chat'
 }
 
 // ---- 1. 摸底聊天：AI 提出下一轮问题 ----
@@ -38,7 +43,7 @@ export async function aiChatQuestion(line: LearningLine, session: OnboardingSess
       ...history,
       { role: 'user', content: '请提出下一个摸底问题。' }
     ],
-    { temperature: 0.8 }
+    { temperature: 0.8, model: moduleModel(settings, 'chat') }
   )
   return answer.trim() || demoChatQuestion(line.title, session.round)
 }
@@ -67,7 +72,7 @@ export async function aiBuildChecklist(line: LearningLine, session: OnboardingSe
         content: '学习目标：' + line.title + '\n学习动机：' + (line.reason || '未说明') + '\n摸底对话：\n' + history + '\n请生成前置知识点自评清单。'
       }
     ],
-    { json: true, temperature: 0.4 }
+    { json: true, temperature: 0.4, model: moduleModel(settings, 'checklist') }
   )
   try {
     const data = extractJson<{ items: { name: string }[] }>(answer)
@@ -111,7 +116,7 @@ export async function aiBuildChecklistFromTree(
         content: '学习目标：' + line.title + '\n能力图谱节点：\n' + listed + '\n请生成自评清单。'
       }
     ],
-    { json: true, temperature: 0.4 }
+    { json: true, temperature: 0.4, model: moduleModel(settings, 'checklist') }
   )
   try {
     const data = extractJson<{ items: { name: string }[] }>(answer)
@@ -221,7 +226,7 @@ export async function aiGenerateTree(
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.5, maxTokens: settings.depth === 'deep' ? 3000 : 4096 }
+    { json: true, temperature: 0.5, maxTokens: settings.depth === 'deep' ? 3000 : 4096, model: moduleModel(settings, 'skeleton') }
   )
   try {
     const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
@@ -412,7 +417,7 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.5, maxTokens: 2000 }
+    { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose') }
   )
   try {
     const data = extractJson<{ done?: boolean; reason?: string; nodes?: DecomposeNode[] }>(answer)
@@ -433,7 +438,7 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
                 '\n注意：X 的名称里含有连接词（与/和/及/、），说明它仍是复合能力，不符合原子单元定义，必须继续拆成单一能力。请输出 nodes。'
             }
           ],
-          { json: true, temperature: 0.5, maxTokens: 2000 }
+          { json: true, temperature: 0.5, maxTokens: 2000, model: moduleModel(settings, 'decompose') }
         )
         try {
           const d2 = extractJson<{ nodes?: DecomposeNode[] }>(retry)
@@ -606,7 +611,7 @@ export async function aiLightEdge(
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.7 }
+    { json: true, temperature: 0.7, model: moduleModel(settings, 'lightEdge') }
   )
   try {
     const data = extractJson<{ edgeWhy: string; examples: string[] }>(answer)

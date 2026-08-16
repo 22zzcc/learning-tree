@@ -9,6 +9,8 @@ export interface ChatOpts {
   json?: boolean
   temperature?: number
   maxTokens?: number
+  /** 覆盖全局模型（按模块单独配置时使用） */
+  model?: string
 }
 
 export function isReasonerModel(model: string): boolean {
@@ -21,11 +23,12 @@ export async function deepseekChat(
   opts: ChatOpts = {}
 ): Promise<string> {
   const url = settings.apiBase.replace(/\/+$/, '') + '/chat/completions'
-  const reasoner = isReasonerModel(settings.model || 'deepseek-chat')
+  const modelName = opts.model || settings.model || 'deepseek-chat'
+  const reasoner = isReasonerModel(modelName)
 
   const buildBody = (includeExtras: boolean): Record<string, unknown> => {
     const body: Record<string, unknown> = {
-      model: settings.model || 'deepseek-chat',
+      model: modelName,
       messages,
       max_tokens: opts.maxTokens ?? 4096
     }

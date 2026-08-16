@@ -34,6 +34,7 @@ export async function getSettings(): Promise<Settings> {
     apiBase: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     depth: 'deep',
+    models: {},
     demoVersion: 0
   }
 }

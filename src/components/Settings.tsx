@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, saveSettings, exportAllData, getSettings } from '../db'
 import { useAppStore } from '../store/appStore'
 import { deepseekChat } from '../lib/deepseek'
+import { AI_MODULE_LABELS, type AiModule } from '../types'
 
 export default function Settings() {
   const settings = useLiveQuery(() => getSettings(), [])
@@ -19,6 +20,14 @@ export default function Settings() {
     setDraft(next)
     await saveSettings(patch)
     toast('设置已保存', 'success')
+  }
+
+  async function commitModuleModel(mod: AiModule, value: string) {
+    const next: Record<string, string> = { ...(settings?.models ?? {}) }
+    if (value) next[mod] = value
+    else delete next[mod]
+    await saveSettings({ models: next })
+    toast('「' + AI_MODULE_LABELS[mod] + '」的模型已更新', 'success')
   }
 
   async function testConnection() {
@@ -133,6 +142,31 @@ export default function Settings() {
             {testing ? '测试中…' : '测试连接'}
           </button>
         </div>
+      </div>
+
+      <div className="card settings-block">
+        <h3>🧩 各模块 AI 模型</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          每个模块可以单独指定模型；选择「跟随默认」时使用上面的全局模型（当前：{settings.model}）。
+        </p>
+        {(Object.keys(AI_MODULE_LABELS) as AiModule[]).map((mod) => (
+          <div key={mod} className="form-row">
+            <label>
+              {AI_MODULE_LABELS[mod]}——当前生效：{settings.models?.[mod] || settings.model}
+            </label>
+            <select
+              value={settings.models?.[mod] ?? ''}
+              onChange={(e) => commitModuleModel(mod, e.target.value)}
+              style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontSize: 14, background: '#fff', color: 'var(--ink)' }}
+            >
+              <option value="">跟随默认（{settings.model}）</option>
+              <option value="deepseek-chat">deepseek-chat（官方，快）</option>
+              <option value="deepseek-reasoner">deepseek-reasoner（推理模型）</option>
+              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+            </select>
+          </div>
+        ))}
       </div>
 
       <div className="card settings-block">

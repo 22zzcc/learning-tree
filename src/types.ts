@@ -61,8 +61,21 @@ export interface Settings {
   model: string
   /** 知识树分解深度：standard = 3~5 层/15~40 节点；deep = 5~8 层/40~150 节点、分支不设上限 */
   depth: DecomposeDepth
+  /** 各 AI 模块的模型覆盖；缺省时跟随全局 model */
+  models?: Partial<Record<AiModule, string>>
   /** 演示数据版本号：升级演示数据时递增，用于老用户刷新 */
   demoVersion: number
+}
+
+/** 使用 AI 的功能模块 */
+export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge'
+
+export const AI_MODULE_LABELS: Record<AiModule, string> = {
+  chat: '摸底聊天（新建学习线时的 3 轮问答）',
+  checklist: '诊断清单（从能力图谱挑关键前置能力）',
+  skeleton: '能力图谱骨架（生成大类与章节）',
+  decompose: '深度分解（自动/手动拆到原子单元）',
+  lightEdge: '边点亮（概念间的例子与为什么）'
 }
 
 export interface ChatMessage {
