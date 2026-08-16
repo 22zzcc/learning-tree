@@ -156,9 +156,12 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
   async function generateGraph(skipDiagnostic = false) {
     if (!line || !session || busy) return
     setBusy(true)
+    // 立即切到「生成中」页面，进度和百分比才会显示
+    const finalSession: OnboardingSession = { ...session, stage: 'generating' }
+    await db.onboarding.put(finalSession)
+    setSession(finalSession)
     setGenMsg('AI 正在生成能力图谱（骨架 + 自动深度分解）…')
     try {
-      const finalSession: OnboardingSession = { ...session, stage: 'generating' }
       const result = await aiBuildDeepTree(line, finalSession, {
         onProgress: (percent, msg) => setGenMsg(msg + '（' + percent + '%）')
       })
@@ -180,8 +183,12 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
       setSession(updated)
       setGenMsg('')
     } catch (e) {
-      toast('生成失败：' + (e as Error).message, 'error')
+      // 失败回到聊天阶段，用户可以重试
+      const back: OnboardingSession = { ...finalSession, stage: 'chat' }
+      await db.onboarding.put(back)
+      setSession(back)
       setGenMsg('')
+      toast('生成失败：' + (e as Error).message, 'error')
     } finally {
       setBusy(false)
     }

@@ -28,16 +28,24 @@ export function uid(): string {
 
 export async function getSettings(): Promise<Settings> {
   const s = await db.settings.get('app')
-  return s ?? {
-    id: 'app',
-    apiKey: '',
-    apiBase: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
-    depth: 'deep',
-    models: {},
-    skeletonNoThinking: true,
-    decomposeNoThinking: true,
-    demoVersion: 0
+  if (!s) {
+    return {
+      id: 'app',
+      apiKey: '',
+      apiBase: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+      depth: 'deep',
+      models: {},
+      skeletonNoThinking: true,
+      decomposeNoThinking: true,
+      demoVersion: 0
+    }
+  }
+  // 老数据归一化：新加的布尔开关缺省时按「开启」处理（undefined !== false → true）
+  return {
+    ...s,
+    skeletonNoThinking: s.skeletonNoThinking !== false,
+    decomposeNoThinking: s.decomposeNoThinking !== false
   }
 }
 
