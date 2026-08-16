@@ -84,8 +84,12 @@ export async function aiBuildChecklist(line: LearningLine, session: OnboardingSe
 function treeSystemPrompt(depth: DecomposeDepth): string {
   const rules =
     depth === 'deep'
-      ? '1. 树深 5~8 层，总节点数 40~150；每层的分支数量不设上限，越详细越好，宁细勿粗。'
+      ? '1. 这一阶段只生成 2~3 层的骨架：根节点 + 3~7 个大类 + 每个大类下 2~4 个子概念，总节点 10~25 个；不要一次性拆到底，深层细节会在后续阶段自动分解完成。'
       : '1. 树深 3~5 层，每层 3~7 个分支，总节点数 15~40。'
+  const leafRule =
+    depth === 'deep'
+      ? '2. 骨架阶段的叶子可以是较大的主题，不必是最终最小单元；但每个节点仍要给出定义 + 原理 + 例子 + 为什么重要。'
+      : '2. 粒度自适应：每片叶子必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」；不满足就继续分解，宁可分解过头，也不要留下看不懂的叶子。'
   return [
     '你是一位知识图谱学习教练。根据用户的学习目标与摸底结果，生成一棵「垂直知识树」（根在上，向下分支）。',
     '输出必须是 JSON，格式：',
@@ -97,7 +101,7 @@ function treeSystemPrompt(depth: DecomposeDepth): string {
     '}',
     '硬性要求：',
     rules,
-    '2. 粒度自适应：每片叶子必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」；不满足就继续分解，宁可分解过头，也不要留下看不懂的叶子。',
+    leafRule,
     '3. principle 是「这个知识点背后的原理是什么」，用一句最通俗的话解释它为什么成立/为什么这样设计；不要输出易错点、误区等负面内容，只讲正确概念。',
     '4. 用户已掌握的概念仍保留在树上，标记 mastered=true（显示为绿色）；用户模糊的概念标记 fuzzy=true（显示为黄色），不标 mastered。',
     '5. 所有文字用通俗中文，面向该领域新手；definition 1~2 句，example 必须具体（带数字或场景）。',
@@ -171,7 +175,7 @@ export async function aiGenerateTree(
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.5, maxTokens: settings.depth === 'deep' ? 8000 : 4096 }
+    { json: true, temperature: 0.5, maxTokens: settings.depth === 'deep' ? 3000 : 4096 }
   )
   try {
     const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
@@ -348,14 +352,19 @@ export async function aiDecomposeNode(parent: TreeNode, lineTitle: string): Prom
   return aiTryDecompose(parent, lineTitle)
 }
 
-/** 自动深度分解：逐轮扫描叶子，把还能拆的概念继续拆到底（或达到上限） */
+/** 自动深度分解：逐轮扫描叶子（每轮 24 个、8 路并发），把还能拆的概念继续拆到底（或达到上限） */
 export async function aiAutoDecompose(
   line: LearningLine,
   nodes: TreeNode[],
-  opts: { maxRounds?: number; maxNodes?: number; onProgress?: (round: number, total: number) => void } = {}
+  opts: {
+    maxRounds?: number
+    maxNodes?: number
+    onProgress?: (round: number, doneInRound: number, batchSize: number, totalNodes: number) => void
+  } = {}
 ): Promise<TreeNode[]> {
-  const maxRounds = opts.maxRounds ?? 3
+  const maxRounds = opts.maxRounds ?? 4
   const maxNodes = opts.maxNodes ?? 300
+  const CONCURRENCY = 8
   const doneIds = new Set<string>()
   let current = nodes
 
@@ -383,39 +392,40 @@ export async function aiAutoDecompose(
     const dm = depthOf(current)
     const leaves = current.filter((n) => (cm.get(n.id)?.length ?? 0) === 0 && !doneIds.has(n.id) && (dm.get(n.id) ?? 0) < 12)
     if (leaves.length === 0) break
-    const batch = leaves.slice(0, 15)
-    const added: TreeNode[] = []
-    let anyDone = false
-    // 并发 4 个请求
+    const batch = leaves.slice(0, 24)
+    let addedInRound = 0
+    let doneInRound = 0
     const queue = [...batch]
     await Promise.all(
-      Array.from({ length: Math.min(4, queue.length) }, async () => {
+      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
         while (queue.length > 0) {
           const leaf = queue.shift()!
           try {
             const res = await aiTryDecompose(leaf, line.title)
             if (res.done) {
               doneIds.add(leaf.id)
-              anyDone = true
             } else if (res.children.length > 0) {
-              added.push(...res.children)
+              if (current.length + res.children.length <= maxNodes) {
+                current = [...current, ...res.children]
+                addedInRound++
+              } else {
+                doneIds.add(leaf.id)
+              }
             } else {
               doneIds.add(leaf.id)
             }
           } catch (e) {
             console.warn('叶子自动分解失败：', leaf.name, e)
+            doneIds.add(leaf.id)
           }
+          doneInRound++
+          opts.onProgress?.(round, doneInRound, batch.length, current.length)
         }
       })
     )
-    if (added.length > 0) {
-      if (current.length + added.length > maxNodes) break
-      current = [...current, ...added]
-      opts.onProgress?.(round, current.length)
-    }
     if (current.length >= maxNodes) break
-    // 本轮没有任何叶子还能拆（也没新增）→ 收工
-    if (added.length === 0) break
+    // 本轮没有任何叶子还能拆 → 收工
+    if (addedInRound === 0) break
   }
   return current
 }
@@ -433,15 +443,15 @@ export async function aiBuildDeepTree(
     opts.onProgress?.(100, '完成')
     return result
   }
-  opts.onProgress?.(30, '骨架完成，开始自动深度分解…')
+  opts.onProgress?.(20, '骨架完成，开始自动深度分解…')
   const before = result.nodes.length
-  const maxRounds = 3
+  const maxRounds = 4
   result.nodes = await aiAutoDecompose(line, result.nodes, {
     maxRounds,
     maxNodes: 300,
-    onProgress: (round, total) => {
-      const percent = Math.min(95, 30 + Math.round((round / maxRounds) * 65))
-      opts.onProgress?.(percent, '自动深度分解：第 ' + round + ' 轮，已生成 ' + total + ' 个节点')
+    onProgress: (round, doneInRound, batchSize, totalNodes) => {
+      const percent = Math.min(95, 20 + (round - 1) * 20 + Math.round((doneInRound / Math.max(1, batchSize)) * 20))
+      opts.onProgress?.(percent, '自动深度分解：第 ' + round + ' 轮 ' + doneInRound + '/' + batchSize + '，已生成 ' + totalNodes + ' 个节点')
     }
   })
   opts.onProgress?.(100, '完成')
