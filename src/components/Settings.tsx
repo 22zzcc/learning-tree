@@ -104,11 +104,11 @@ export default function Settings() {
           >
             <option value="deepseek-chat">deepseek-chat（DeepSeek 官方，快）</option>
             <option value="deepseek-reasoner">deepseek-reasoner（推理模型，分解更深入）</option>
-            <option value="v4-flash">v4-flash</option>
-            <option value="v4-pro">v4-pro</option>
+            <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+            <option value="deepseek-v4-pro">deepseek-v4-pro</option>
           </select>
           <p className="muted small" style={{ margin: '4px 0 0' }}>
-            deepseek-chat / deepseek-reasoner 默认走 DeepSeek 官方接口；v4-flash / v4-pro 需要把上面的「接口地址」改成提供该模型的服务地址。模型不支持 JSON 模式时会自动降级重试，无需额外设置。
+            deepseek-chat / deepseek-reasoner 默认走 DeepSeek 官方接口；deepseek-v4-flash / deepseek-v4-pro 需要把上面的「接口地址」改成提供该模型的服务地址。模型不支持 JSON 模式时会自动降级重试，无需额外设置。
           </p>
         </div>
         <div className="form-row">
