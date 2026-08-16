@@ -85,6 +85,25 @@ check('根节点带选中描边', (svgEl.querySelector('g.node rect')?.getAttrib
 const toggles = svgEl.querySelectorAll('circle.collapse-toggle')
 check('有子节点的节点带折叠按钮（6 个）', toggles.length === 6, 'got ' + toggles.length)
 check('所有边路径非空', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('d') ?? '').length > 10))
+check('连线为弧线（贝塞尔曲线）', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('d') ?? '').includes('C')))
+check('所有连线为虚线', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('stroke-dasharray') ?? '') !== ''))
+
+// 分组布局：大类之间距离 > 同一大类内部同级距离
+const getX = (el: Element): number => {
+  const m = (el.getAttribute('transform') ?? '').match(/translate\(([-\d.]+),/)
+  return m ? Number(m[1]) : 0
+}
+const topXs = [...svgEl.querySelectorAll('g.node[data-depth="1"]')].map(getX).sort((a, b) => a - b)
+const innerXs = [...svgEl.querySelectorAll('g.node[data-depth="2"]')].map(getX).sort((a, b) => a - b)
+const topGaps: number[] = []
+const innerGaps: number[] = []
+for (let i = 1; i < topXs.length; i++) topGaps.push(topXs[i] - topXs[i - 1])
+for (let i = 1; i < innerXs.length; i++) innerGaps.push(innerXs[i] - innerXs[i - 1])
+check(
+  '大类之间间距 > 大类内部同级间距',
+  Math.min(...topGaps) > Math.max(...innerGaps),
+  JSON.stringify({ topGaps, innerGaps })
+)
 
 // 保存整树 SVG 供人工查看
 writeFileSync('demo-tree-full.svg', new XMLSerializer().serializeToString(svgEl))

@@ -8,8 +8,9 @@ import { STATE_COLOR, STATE_BG, STATE_LABEL } from '../types'
 export const ROOT_W = 64           // 根（书名）：竖向卡片
 export const ROOT_H = 84
 export const V_W = 48            // 全部节点：竖向卡片宽度
-export const DX = 140            // 同级水平间距（窄）
+export const DX = 120            // 同一大类内部：同级紧凑间距
 export const DY = 170            // 层间垂直间距
+export const GROUP_GAP = 180     // 不同大类之间：额外拉开距离
 
 export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s
@@ -78,6 +79,34 @@ export function renderTree(opts: RenderTreeOpts): void {
     d.num = (d.parent && (d.parent as any).num ? (d.parent as any).num + '.' : '') + idx
   })
 
+  // 分组布局：不同大类之间拉开距离，同一大类内部保持紧凑
+  const topChildren = rootD3.children ?? []
+  if (topChildren.length > 1) {
+    let cursor = -Infinity
+    topChildren.forEach((tc) => {
+      let subMin = Infinity
+      let subMax = -Infinity
+      tc.each((d) => {
+        subMin = Math.min(subMin, d.x)
+        subMax = Math.max(subMax, d.x)
+      })
+      const shift = cursor === -Infinity ? 0 : cursor + GROUP_GAP - subMin
+      if (shift !== 0) {
+        tc.each((d) => {
+          d.x += shift
+        })
+      }
+      cursor = subMax + shift
+    })
+    const centers = topChildren.map((tc) => tc.x)
+    const center = (Math.min(...centers) + Math.max(...centers)) / 2
+    const delta = center - rootD3.x
+    rootD3.each((d) => {
+      if (d.depth > 0) d.x += delta
+    })
+    rootD3.x = center
+  }
+
   let minX = Infinity
   let maxX = -Infinity
   let maxY = 0
@@ -127,26 +156,35 @@ export function renderTree(opts: RenderTreeOpts): void {
     })
   svg.call(zoom).call(zoom.transform, t)
 
-  // ---- 边 ----
+  // ---- 边：弧线虚线，从大类（父）下端连到子类上端 ----
   const link = d3
-    .linkVertical<d3.HierarchyPointLink<TreeNode>, d3.HierarchyPointNode<TreeNode>>()
+    .linkVertical<
+      { source: { x: number; y: number }; target: { x: number; y: number } },
+      { x: number; y: number }
+    >()
     .x((d) => d.x)
     .y((d) => d.y)
 
   const linkG = content.append('g').attr('class', 'links')
   rootD3.links().forEach((l) => {
+    const srcH = cardSize(l.source).h
+    const tgtH = cardSize(l.target).h
+    const pts = {
+      source: { x: l.source.x, y: l.source.y + srcH / 2 },
+      target: { x: l.target.x, y: l.target.y - tgtH / 2 }
+    }
     const lit = l.target.data.edgeLit
     linkG
       .append('path')
       .attr('class', 'link' + (lit ? ' lit' : ''))
-      .attr('d', link(l))
+      .attr('d', link(pts))
       .attr('fill', 'none')
-      .attr('stroke', lit ? '#2e9e5b' : '#c6d2cc')
-      .attr('stroke-width', lit ? 2 : 1.5)
-      .attr('stroke-dasharray', lit ? 'none' : '5 5')
+      .attr('stroke', lit ? '#2e9e5b' : '#b9c6c0')
+      .attr('stroke-width', lit ? 2 : 1.4)
+      .attr('stroke-dasharray', lit ? '6 5' : '4 5')
     if (lit && l.target.data.edgeWhy) {
-      const mx = (l.source.x + l.target.x) / 2
-      const my = (l.source.y + l.target.y) / 2
+      const mx = (pts.source.x + pts.target.x) / 2
+      const my = (pts.source.y + pts.target.y) / 2
       const label = linkG
         .append('text')
         .attr('class', 'edge-label')
@@ -176,6 +214,7 @@ export function renderTree(opts: RenderTreeOpts): void {
     .data(rootD3.descendants())
     .join('g')
     .attr('class', 'node')
+    .attr('data-depth', (d) => d.depth)
     .attr('transform', (d) => 'translate(' + d.x + ',' + d.y + ')')
 
   g.each(function (d) {
