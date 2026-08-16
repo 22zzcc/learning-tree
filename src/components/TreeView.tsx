@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as d3 from 'd3'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db'
+import { db, uid } from '../db'
 import { useAppStore } from '../store/appStore'
 import { buildTree, computeStats } from '../lib/treeUtils'
-import { STATE_COLOR, type TreeNode } from '../types'
+import { STATE_COLOR, type TreeNode, type OnboardingSession } from '../types'
 import { exportPng, exportSvg } from '../lib/exportImage'
 import { renderTree } from '../lib/renderTree'
+import { aiGenerateTree } from '../lib/ai'
 import NodePanel from './NodePanel'
 
 const LEGEND: { key: TreeNode['state']; label: string }[] = [
@@ -24,6 +25,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
   const initializedRef = useRef(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tick, setTick] = useState(0)
+  const [rebuilding, setRebuilding] = useState(false)
   const selectedId = useAppStore((s) => s.selectedNodeId)
   const focusId = useAppStore((s) => s.focusNodeId)
   const selectNode = useAppStore((s) => s.selectNode)
@@ -115,6 +117,54 @@ export default function TreeView({ lineId }: { lineId: string }) {
     toast('已删除分支', 'info')
   }
 
+  async function rebuildTree() {
+    if (!line || !treeData || rebuilding) return
+    const ok = window.confirm(
+      '重新构建会用 AI 重新生成整棵知识树，并替换当前这棵树。\n' +
+      '你已掌握（🟢）和模糊（🟡）的标记会按概念名称自动保留，其余节点状态重置。继续？'
+    )
+    if (!ok) return
+    setRebuilding(true)
+    try {
+      // 沿用原有摸底会话（聊天记录 + 自评清单）；演示线没有会话则用空会话
+      const existing = await db.onboarding.where('lineId').equals(lineId).first()
+      const session: OnboardingSession = existing ?? {
+        id: uid(),
+        lineId,
+        stage: 'done',
+        messages: [],
+        checklist: [],
+        round: 3
+      }
+      // 记录旧树的掌握状态（按名称）
+      const masteredNames = new Set<string>()
+      const fuzzyNames = new Set<string>()
+      treeData.byId.forEach((n) => {
+        if (n.state === 'mastered') masteredNames.add(n.name)
+        else if (n.state === 'fuzzy') fuzzyNames.add(n.name)
+      })
+      const newNodes = await aiGenerateTree(line, session)
+      // 回填旧状态（按名称匹配）
+      newNodes.forEach((n) => {
+        if (masteredNames.has(n.name)) n.state = 'mastered'
+        else if (fuzzyNames.has(n.name)) n.state = 'fuzzy'
+      })
+      await db.transaction('rw', db.nodes, async () => {
+        await db.nodes.where('lineId').equals(lineId).delete()
+        await db.nodes.bulkAdd(newNodes)
+      })
+      selectNode(null)
+      setFocus(null)
+      initializedRef.current = false
+      setTick((x) => x + 1)
+      toast('知识树已重新构建：' + newNodes.length + ' 个节点（已掌握的标记已保留）', 'success')
+    } catch (e) {
+      toast('重建失败：' + (e as Error).message, 'error')
+    } finally {
+      setRebuilding(false)
+    }
+  }
+
   const stats = nodes ? computeStats(nodes) : null
   const selectedNode = selectedId ? treeData?.byId.get(selectedId) ?? null : null
   const selectedParent = selectedNode?.parentId ? treeData?.byId.get(selectedNode.parentId) ?? null : null
@@ -134,6 +184,9 @@ export default function TreeView({ lineId }: { lineId: string }) {
         <button className="btn btn-sm" onClick={expandAll}>全部展开</button>
         <button className="btn btn-sm" onClick={collapseAll}>全部折叠</button>
         <button className="btn btn-sm" onClick={resetView}>重置视图</button>
+        <button className="btn btn-sm" onClick={rebuildTree} disabled={rebuilding} title="用 AI 重新生成整棵知识树，保留已掌握标记">
+          {rebuilding ? '重建中…' : '🔄 重新构建'}
+        </button>
         <button className="btn btn-sm" onClick={() => svgRef.current && exportSvg(svgRef.current, (line?.title ?? '知识树') + '.svg')}>
           导出 SVG
         </button>

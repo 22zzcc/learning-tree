@@ -48,17 +48,19 @@ export default function Home({ onNewLine }: { onNewLine: () => void }) {
           <p>新建一条学习线，AI 会先摸底你已掌握的知识，再生成属于你的知识树。</p>
         </div>
       ) : (
-        <div className="line-grid">
+        <div className="line-list">
           {lines.map((l) => {
             const s = statsByLine.get(l.id)
             return (
-              <div key={l.id} className="card line-card" onClick={() => openLine(l.id)}>
-                <h3>{l.title}</h3>
-                <div className="line-reason">{l.reason || '（未填写学习动机）'}</div>
+              <div key={l.id} className="card line-row" onClick={() => openLine(l.id)}>
+                <div className="line-row-main">
+                  <h3>{l.title}</h3>
+                  <div className="line-reason">{l.reason || '（未填写学习动机）'}</div>
+                </div>
                 {s && (
                   <>
-                    <div>
-                      <div className="line-stats" style={{ marginBottom: 6 }}>
+                    <div className="line-row-stats">
+                      <div className="line-stats">
                         <span>概念 {s.total} 个</span>
                         <span style={{ color: STATE_COLOR.mastered }}>● 已掌握 {s.mastered}</span>
                         <span style={{ color: STATE_COLOR.learning }}>● 学习中 {s.learning}</span>

@@ -158,16 +158,24 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 .home-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; gap: 16px; flex-wrap: wrap; }
 .home-head h1 { margin: 0; font-size: 22px; }
 
-.line-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.line-list { display: flex; flex-direction: column; gap: 14px; }
 
-.line-card { display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
-.line-card:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(30, 60, 45, 0.14); }
+.line-row { display: flex; align-items: center; gap: 24px; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.line-row:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(30, 60, 45, 0.14); }
 
-.line-card h3 { margin: 0; font-size: 17px; }
+.line-row-main { flex: 2; min-width: 0; }
+.line-row-main h3 { margin: 0; font-size: 17px; }
 .line-reason { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
+.line-row-stats { flex: 1.4; min-width: 200px; display: flex; flex-direction: column; gap: 6px; }
+
 .line-stats { display: flex; gap: 12px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
-.line-actions { display: flex; gap: 8px; margin-top: 2px; }
+.line-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+@media (max-width: 860px) {
+  .line-row { flex-direction: column; align-items: stretch; gap: 12px; }
+  .line-actions { justify-content: flex-end; }
+}
 
 /* ---------- 知识树 ---------- */
 .tree-topbar {
