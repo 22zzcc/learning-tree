@@ -7,7 +7,7 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -207,10 +207,20 @@ check('演示模板不含误区分支', !JSON.stringify(tpl).includes('误区'))
 check('演示数据不含易错点', allNodes.every((n) => !n.pitfalls || n.pitfalls.length === 0))
 
 // ---- 8. 继续分解（分支不设上限） ----
-const kids = await aiDecomposeNode(td.root!, sd.title)
-check('演示模式分解出 ≥2 个子节点且父节点正确', kids.length >= 2 && kids.every((k) => k.parentId === td.root!.id), 'got ' + kids.length)
+const decomposeRes = await aiDecomposeNode(td.root!, sd.title)
+const kids = decomposeRes.children
+check('演示模式分解出 ≥2 个子节点且父节点正确', !decomposeRes.done && kids.length >= 2 && kids.every((k) => k.parentId === td.root!.id), 'got ' + kids.length)
 check('分解出的子节点都带原理', kids.every((k) => (k.principle ?? '').length > 0))
 await db.nodes.bulkAdd(kids)
+
+// ---- 8.5 自动深度分解 ----
+const autoBefore = 3
+const autoGrown = await aiAutoDecompose(
+  { id: sd.id, title: sd.title, reason: '', createdAt: Date.now(), status: 'active' },
+  sdNodes.slice(0, autoBefore),
+  { maxRounds: 2, maxNodes: 50 }
+)
+check('自动深度分解会持续拆分叶子', autoGrown.length > autoBefore, 'got ' + autoGrown.length)
 const grown = buildTree(await db.nodes.where('lineId').equals(sd.id).toArray())
 renderTree({
   svgEl,

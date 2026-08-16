@@ -52,9 +52,13 @@ export default function NodePanel({
   async function decompose() {
     setDecomposing(true)
     try {
-      const children = await aiDecomposeNode(node, lineTitle)
-      await db.nodes.bulkAdd(children)
-      toast('已分解出 ' + children.length + ' 个更细小的知识领域！觉得还不够细可以继续点', 'success')
+      const res = await aiDecomposeNode(node, lineTitle)
+      if (res.done) {
+        toast('「' + node.name + '」已经是足够细小的知识单元：' + (res.reason ?? '无需再分解'), 'info')
+      } else {
+        await db.nodes.bulkAdd(res.children)
+        toast('已分解出 ' + res.children.length + ' 个更细小的知识领域！', 'success')
+      }
     } catch (e) {
       toast('分解失败：' + (e as Error).message, 'error')
     } finally {

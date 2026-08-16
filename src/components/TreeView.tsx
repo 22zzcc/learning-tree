@@ -7,7 +7,7 @@ import { buildTree, computeStats } from '../lib/treeUtils'
 import { STATE_COLOR, type TreeNode, type OnboardingSession } from '../types'
 import { exportPng, exportSvg } from '../lib/exportImage'
 import { renderTree } from '../lib/renderTree'
-import { aiGenerateTree } from '../lib/ai'
+import { aiBuildDeepTree } from '../lib/ai'
 import NodePanel from './NodePanel'
 
 const LEGEND: { key: TreeNode['state']; label: string }[] = [
@@ -143,7 +143,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
         if (n.state === 'mastered') masteredNames.add(n.name)
         else if (n.state === 'fuzzy') fuzzyNames.add(n.name)
       })
-      const result = await aiGenerateTree(line, session, { rebuildDemo: true })
+      const result = await aiBuildDeepTree(line, session, { rebuildDemo: true, onProgress: (msg) => toast(msg, 'info') })
       const newNodes = result.nodes
       // 回填旧状态（按名称匹配）
       newNodes.forEach((n) => {

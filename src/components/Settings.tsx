@@ -118,13 +118,13 @@ export default function Settings() {
               className={s.depth === 'standard' ? 'active known' : ''}
               onClick={() => commit({ depth: 'standard' })}
             >
-              标准（3~5 层，15~40 节点）
+              标准（3~5 层，15~40 节点，不做自动深拆）
             </button>
             <button
               className={s.depth === 'deep' ? 'active known' : ''}
               onClick={() => commit({ depth: 'deep' })}
             >
-              深度（5~8 层，40~150 节点，分支不设上限）
+              深度（自动分解到不能再拆，上限约 300 节点）
             </button>
           </div>
         </div>

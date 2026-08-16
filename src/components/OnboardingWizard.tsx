@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, uid, getSettings } from '../db'
 import type { LearningLine, OnboardingSession, LineCategory } from '../types'
-import { aiChatQuestion, aiBuildChecklist, aiGenerateTree, isDemoMode } from '../lib/ai'
+import { aiChatQuestion, aiBuildChecklist, aiBuildDeepTree, isDemoMode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
 const CATEGORY_OPTIONS: { key: LineCategory; icon: string; label: string; hint: string }[] = [
@@ -119,7 +119,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
     setGenMsg('AI 正在生成你的知识树骨架（标准模式约 10~30 秒，深度模式约 1~3 分钟）…')
     try {
       const finalSession = skipChecklist ? { ...session, checklist: [], stage: 'generating' as const } : { ...session, stage: 'generating' as const }
-      const result = await aiGenerateTree(line, finalSession)
+      const result = await aiBuildDeepTree(line, finalSession, { onProgress: (msg) => setGenMsg(msg) })
       if (result.note) toast(result.note, 'info')
       await db.nodes.bulkAdd(result.nodes)
       await db.onboarding.put({ ...finalSession, stage: 'done' })

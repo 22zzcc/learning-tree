@@ -257,14 +257,15 @@ const CATEGORY_GUIDE: Record<LineCategory, string> = {
   career: '技术栈线：目标是补足专业所需的技能，强调与已有知识和工作场景的衔接，学了就要能用上。'
 }
 
-// ---- 4. 继续分解：把任意节点拆成更细小的知识领域 ----
+// ---- 4. 继续分解：把任意节点拆成更细小的知识领域（含「已是最小单元」判断） ----
 
 const DECOMPOSE_SYSTEM = [
-  '你是知识图谱学习教练。用户觉得概念「X」还不够细，需要把它分解成更细小的知识领域。',
-  '输出 JSON：{"nodes": [{"name": "子概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理"}]}',
+  '你是知识图谱学习教练。用户需要判断概念「X」是否还能继续分解成更细小的知识领域。',
+  '如果 X 已经是这个领域的最小知识单元（例如已经具体到单个公式、单条定义、单个操作步骤，再拆就失去意义），输出：{"done": true, "reason": "一句话说明为什么它已经是最小单元"}',
+  '否则输出：{"nodes": [{"name": "子概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理"}]}',
   '硬性要求：',
-  '1. 分解成 3~6 个子概念，分支不设上限；',
-  '2. 每个子概念必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」，达不到就拆得更细；',
+  '1. 能拆则拆成 3~6 个子概念，分支不设上限；',
+  '2. 每个子概念必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」，达不到就继续拆；',
   '3. 子概念之间不重叠，合起来能完整覆盖「X」；',
   '4. 用通俗中文，面向新手；example 必须具体；',
   '5. 只输出 JSON，不要输出任何解释。'
@@ -279,12 +280,38 @@ interface DecomposeNode {
   pitfalls?: string[]
 }
 
-export async function aiDecomposeNode(parent: TreeNode, lineTitle: string): Promise<TreeNode[]> {
+export interface DecomposeResult {
+  done: boolean
+  reason?: string
+  children: TreeNode[]
+}
+
+function decomposeNodesToTree(g: DecomposeNode[], parent: TreeNode, now: number): TreeNode[] {
+  return g.slice(0, 8).map((it) => ({
+    id: uid(),
+    lineId: parent.lineId,
+    parentId: parent.id,
+    name: it.name.trim(),
+    definition: it.definition.trim(),
+    example: it.example.trim(),
+    whyImportant: it.whyImportant.trim(),
+    principle: it.principle?.trim(),
+    pitfalls: (it.pitfalls ?? []).map((p) => p.trim()).filter(Boolean),
+    state: 'unlearned' as const,
+    edgeWhy: null,
+    edgeExamples: [],
+    edgeLit: false,
+    createdAt: now,
+    updatedAt: now
+  }))
+}
+
+/** 尝试分解一个节点：AI 判断它是否已经是最小知识单元 */
+export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promise<DecomposeResult> {
   const settings = await getSettings()
   if (isDemoMode(settings)) {
-    return demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id))
+    return { done: false, children: demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id)) }
   }
-
   const answer = await deepseekChat(
     settings,
     [
@@ -293,40 +320,125 @@ export async function aiDecomposeNode(parent: TreeNode, lineTitle: string): Prom
         role: 'user',
         content: [
           '学习目标（树根）：' + lineTitle,
-          '要分解的概念 X：' + parent.name,
+          '要判断的概念 X：' + parent.name,
           'X 的定义：' + parent.definition,
           'X 的例子：' + parent.example,
           'X 的原理：' + (parent.principle || '（未提供）'),
-          '请把 X 分解成更细小的知识领域。'
+          '请判断 X 是否还能继续分解，能拆就给出子概念，不能拆就给出 done。'
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.5, maxTokens: 4000 }
+    { json: true, temperature: 0.5, maxTokens: 2000 }
   )
   try {
-    const data = extractJson<{ nodes: DecomposeNode[] }>(answer)
-    const now = Date.now()
-    return data.nodes.slice(0, 8).map((g) => ({
-      id: uid(),
-      lineId: parent.lineId,
-      parentId: parent.id,
-      name: g.name.trim(),
-      definition: g.definition.trim(),
-      example: g.example.trim(),
-      whyImportant: g.whyImportant.trim(),
-      principle: g.principle?.trim(),
-      pitfalls: (g.pitfalls ?? []).map((p) => p.trim()).filter(Boolean),
-      state: 'unlearned' as const,
-      edgeWhy: null,
-      edgeExamples: [],
-      edgeLit: false,
-      createdAt: now,
-      updatedAt: now
-    }))
+    const data = extractJson<{ done?: boolean; reason?: string; nodes?: DecomposeNode[] }>(answer)
+    if (data.done) return { done: true, reason: data.reason, children: [] }
+    if (data.nodes && data.nodes.length > 0) {
+      return { done: false, children: decomposeNodesToTree(data.nodes, parent, Date.now()) }
+    }
+    return { done: true, reason: 'AI 认为它已无需再分解', children: [] }
   } catch (e) {
-    console.warn('解析分解结果失败，回退演示模板', e)
-    return demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id))
+    console.warn('解析分解结果失败', e)
+    return { done: true, reason: 'AI 返回内容解析失败，跳过自动分解', children: [] }
   }
+}
+
+/** 手动「继续分解」按钮使用：返回分解结果（done 时 children 为空） */
+export async function aiDecomposeNode(parent: TreeNode, lineTitle: string): Promise<DecomposeResult> {
+  return aiTryDecompose(parent, lineTitle)
+}
+
+/** 自动深度分解：逐轮扫描叶子，把还能拆的概念继续拆到底（或达到上限） */
+export async function aiAutoDecompose(
+  line: LearningLine,
+  nodes: TreeNode[],
+  opts: { maxRounds?: number; maxNodes?: number; onProgress?: (round: number, total: number) => void } = {}
+): Promise<TreeNode[]> {
+  const maxRounds = opts.maxRounds ?? 3
+  const maxNodes = opts.maxNodes ?? 300
+  const doneIds = new Set<string>()
+  let current = nodes
+
+  const childrenOf = (list: TreeNode[]): Map<string, TreeNode[]> => {
+    const cm = new Map<string, TreeNode[]>()
+    list.forEach((n) => cm.set(n.id, cm.get(n.id) ?? []))
+    list.forEach((n) => {
+      if (n.parentId && cm.has(n.parentId)) cm.get(n.parentId)!.push(n)
+    })
+    return cm
+  }
+  const depthOf = (list: TreeNode[]): Map<string, number> => {
+    const dm = new Map<string, number>()
+    const walk = (n: TreeNode, d: number) => {
+      dm.set(n.id, d)
+      ;(childrenOf(list).get(n.id) ?? []).forEach((c) => walk(c, d + 1))
+    }
+    const root = list.find((n) => !n.parentId) ?? list[0]
+    if (root) walk(root, 0)
+    return dm
+  }
+
+  for (let round = 1; round <= maxRounds; round++) {
+    const cm = childrenOf(current)
+    const dm = depthOf(current)
+    const leaves = current.filter((n) => (cm.get(n.id)?.length ?? 0) === 0 && !doneIds.has(n.id) && (dm.get(n.id) ?? 0) < 12)
+    if (leaves.length === 0) break
+    const batch = leaves.slice(0, 15)
+    const added: TreeNode[] = []
+    let anyDone = false
+    // 并发 4 个请求
+    const queue = [...batch]
+    await Promise.all(
+      Array.from({ length: Math.min(4, queue.length) }, async () => {
+        while (queue.length > 0) {
+          const leaf = queue.shift()!
+          try {
+            const res = await aiTryDecompose(leaf, line.title)
+            if (res.done) {
+              doneIds.add(leaf.id)
+              anyDone = true
+            } else if (res.children.length > 0) {
+              added.push(...res.children)
+            } else {
+              doneIds.add(leaf.id)
+            }
+          } catch (e) {
+            console.warn('叶子自动分解失败：', leaf.name, e)
+          }
+        }
+      })
+    )
+    if (added.length > 0) {
+      if (current.length + added.length > maxNodes) break
+      current = [...current, ...added]
+      opts.onProgress?.(round, current.length)
+    }
+    if (current.length >= maxNodes) break
+    // 本轮没有任何叶子还能拆（也没新增）→ 收工
+    if (added.length === 0) break
+  }
+  return current
+}
+
+/** 完整构建流程：生成骨架 → （深度模式自动）分解到足够细小 */
+export async function aiBuildDeepTree(
+  line: LearningLine,
+  session: OnboardingSession,
+  opts: { rebuildDemo?: boolean; onProgress?: (msg: string) => void } = {}
+): Promise<GenerateTreeResult> {
+  const result = await aiGenerateTree(line, session, { rebuildDemo: opts.rebuildDemo })
+  const settings = await getSettings()
+  if (isDemoMode(settings) || settings.depth !== 'deep') return result
+  const before = result.nodes.length
+  result.nodes = await aiAutoDecompose(line, result.nodes, {
+    maxRounds: 3,
+    maxNodes: 300,
+    onProgress: (round, total) => opts.onProgress?.('自动深度分解中：第 ' + round + ' 轮，已生成 ' + total + ' 个节点…')
+  })
+  if (result.nodes.length > before) {
+    result.note = (result.note ? result.note + '；' : '') + '已自动深度分解：' + before + ' → ' + result.nodes.length + ' 个节点（直到 AI 认为无法再拆为止）'
+  }
+  return result
 }
 
 // ---- 5. 点亮边：生成「为什么关联 + 相似例子」 ----
