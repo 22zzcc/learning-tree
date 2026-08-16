@@ -1,7 +1,7 @@
 // ---------- AI 编排：有 API Key 走 DeepSeek，没有则走演示模板 ----------
 
 import { getSettings, uid } from '../db'
-import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec } from '../types'
+import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec, GenerationMeta } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
 import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, type DemoNodeSpec } from './demo'
 
@@ -66,10 +66,11 @@ export async function aiGoalSpec(line: LearningLine, chosenScope?: string): Prom
         options: Array.isArray(data.options) ? data.options.slice(0, 5).map((o) => o.trim()) : undefined
       }
     }
+    throw new Error('目标规格书缺少关键字段（goal/deliverable/criteria）')
   } catch (e) {
-    console.warn('目标规格解析失败，使用原始目标', e)
+    console.error('目标规格解析失败', e)
+    throw new Error('目标规格书生成失败：AI 返回无法解析的内容（' + (e as Error).message + '）')
   }
-  return { goal: line.title, deliverable: '一件用「' + line.title + '」完成的真实成果', criteria: ['能独立完成一次最小实践', '能向别人讲清楚它是什么'] }
 }
 
 // ---- 1. 摸底聊天：AI 提出下一轮问题 ----
@@ -186,10 +187,11 @@ export async function aiBuildChecklistFromTree(
       .slice(0, 15)
       .map((it) => ({ id: uid(), name: it.name.trim(), state: 'unknown' as const }))
     if (items.length > 0) return items
+    throw new Error('诊断清单为空')
   } catch (e) {
-    console.warn('解析诊断清单失败，回退演示清单', e)
+    console.error('解析诊断清单失败', e)
+    throw new Error('诊断清单生成失败：AI 返回无法解析的内容（' + (e as Error).message + '）')
   }
-  return demoChecklist(line.title)
 }
 
 // ---- 3. 生成知识树骨架（分支不设上限，越详细越好） ----
@@ -236,8 +238,31 @@ interface GenNode {
 
 export interface GenerateTreeResult {
   nodes: TreeNode[]
-  /** 需要提示用户的信息（演示模式 / 解析回退说明） */
+  /** 需要提示用户的信息（演示模式说明等） */
   note?: string
+  /** 生成溯源：这棵树由谁、如何生成 */
+  meta: GenerationMeta
+}
+
+/** 骨架结构校验：缺关键字段直接判失败（P0：宁可报错，不给假树） */
+function validateSkeleton(data: { root: GenNode; nodes: GenNode[] }): void {
+  if (!data.root || typeof data.root !== 'object' || !data.root.name || !data.root.definition) {
+    throw new Error('骨架缺少 root 节点（name/definition 缺失）')
+  }
+  if (!Array.isArray(data.nodes) || data.nodes.length === 0) {
+    throw new Error('骨架缺少 nodes 数组（没有任何子能力）')
+  }
+  for (const n of data.nodes.slice(0, 10)) {
+    if (!n.name || !n.definition || !n.example || !n.whyImportant) {
+      throw new Error('骨架节点缺少关键字段：' + JSON.stringify(n).slice(0, 120))
+    }
+    if (!Array.isArray(n.parentPath)) {
+      throw new Error('骨架节点 parentPath 不是数组：' + n.name)
+    }
+  }
+  if (data.nodes.length > 200) {
+    throw new Error('骨架节点数超出上限：' + data.nodes.length)
+  }
 }
 
 export async function aiGenerateTree(
@@ -247,7 +272,7 @@ export async function aiGenerateTree(
 ): Promise<GenerateTreeResult> {
   const settings = await getSettings()
   if (isDemoMode(settings)) {
-    // 重新构建时：内置演示线恢复原始演示树，其余用通用模板
+    // 只有真正的演示模式（无 API Key）才允许使用内置模板
     const spec = opts.rebuildDemo ? (demoSpecForTitle(line.title) ?? demoTreeSpec(line.title, line.reason)) : demoTreeSpec(line.title, line.reason)
     const nodes = specToNodes(spec, line.id)
     // 演示模式下也尊重自评：勾了「会」的项标记为已掌握
@@ -260,52 +285,86 @@ export async function aiGenerateTree(
     return {
       nodes,
       note: opts.rebuildDemo
-        ? '演示模式：未配置 API Key，已用内置演示知识树重建（配置 Key 后才会个性化生成）'
-        : '演示模式：未配置 API Key，使用内置模板生成（配置 Key 后才会个性化生成）'
+        ? '演示模式：未配置 API Key，已用内置演示能力图谱重建（配置 Key 后才会个性化生成）'
+        : '演示模式：未配置 API Key，使用内置模板生成（配置 Key 后才会个性化生成）',
+      meta: {
+        source: 'demo',
+        model: '内置模板',
+        generatedAt: Date.now(),
+        skeletonAttempts: 1,
+        decompositionCalls: 0,
+        stopReason: 'demo_mode',
+        complete: true
+      }
     }
   }
 
+  // ===== 真实 AI 模式：失败必须大声报错，绝不静默回退模板 =====
   const history = session.messages.map((m) => (m.role === 'ai' ? '教练' : '学员') + '：' + m.text).join('\n')
   const known = session.checklist.filter((c) => c.state === 'known').map((c) => c.name)
   const fuzzy = session.checklist.filter((c) => c.state === 'fuzzy').map((c) => c.name)
   const unknown = session.checklist.filter((c) => c.state === 'unknown').map((c) => c.name)
-  const answer = await deepseekChat(
-    settings,
-    [
-      { role: 'system', content: treeSystemPrompt(settings.depth) },
+  const model = moduleModel(settings, 'skeleton')
+  const userContent = [
+    '学习目标：' + line.title,
+    '目标规格书（root 必须按这个定义）：',
+    '- 终局能力：' + (session.goalSpec?.goal ?? line.title),
+    '- 交付物：' + (session.goalSpec?.deliverable ?? '未指定'),
+    '- 成功标准：' + (session.goalSpec?.criteria.join('；') ?? '未指定'),
+    '学习线定位：' + (CATEGORY_GUIDE[line.category ?? 'expert'] ?? CATEGORY_GUIDE.expert),
+    '学习动机：' + (line.reason || '未说明'),
+    '摸底对话：\n' + history,
+    '前置概念自评：',
+    '- 已会：' + (known.join('、') || '无'),
+    '- 模糊：' + (fuzzy.join('、') || '无'),
+    '- 不会：' + (unknown.join('、') || '无'),
+    '请生成能力图谱骨架。'
+  ].join('\n')
+
+  let lastErr: Error | null = null
+  let rawSnippet = ''
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const answer = await deepseekChat(
+      settings,
+      [{ role: 'system', content: treeSystemPrompt(settings.depth) }, { role: 'user', content: userContent }],
       {
-        role: 'user',
-        content: [
-          '学习目标：' + line.title,
-          '目标规格书（root 必须按这个定义）：',
-          '- 终局能力：' + (session.goalSpec?.goal ?? line.title),
-          '- 交付物：' + (session.goalSpec?.deliverable ?? '未指定'),
-          '- 成功标准：' + (session.goalSpec?.criteria.join('；') ?? '未指定'),
-          '学习线定位：' + (CATEGORY_GUIDE[line.category ?? 'expert'] ?? CATEGORY_GUIDE.expert),
-          '学习动机：' + (line.reason || '未说明'),
-          '摸底对话：\n' + history,
-          '前置概念自评：',
-          '- 已会：' + (known.join('、') || '无'),
-          '- 模糊：' + (fuzzy.join('、') || '无'),
-          '- 不会：' + (unknown.join('、') || '无'),
-          '请生成知识树。'
-        ].join('\n')
+        json: true,
+        temperature: 0.5,
+        maxTokens: settings.depth === 'deep' ? 8192 : 8192,
+        model,
+        thinking: settings.skeletonNoThinking ? 'disabled' : undefined
       }
-    ],
-    { json: true, temperature: 0.5, maxTokens: settings.depth === 'deep' ? 3000 : 4096, model: moduleModel(settings, 'skeleton') }
-  )
-  try {
-    const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
-    const all: GenNode[] = [data.root, ...data.nodes.slice(0, 200)]
-    return { nodes: genNodesToTree(all, line.id) }
-  } catch (e) {
-    console.error('解析知识树失败，回退内置模板', e)
-    return {
-      nodes: specToNodes(demoTreeSpec(line.title, line.reason), line.id),
-      note: 'AI 返回的内容解析失败，已用内置模板代替：' + String((e as Error).message).slice(0, 100)
+    )
+    rawSnippet = answer.slice(0, 800)
+    try {
+      const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
+      validateSkeleton(data)
+      const all: GenNode[] = [data.root, ...data.nodes.slice(0, 200)]
+      return {
+        nodes: genNodesToTree(all, line.id),
+        meta: {
+          source: 'ai',
+          model,
+          generatedAt: Date.now(),
+          skeletonAttempts: attempt,
+          decompositionCalls: 0,
+          stopReason: 'skeleton_only',
+          complete: true
+        }
+      }
+    } catch (e) {
+      lastErr = e as Error
+      console.error('[skeleton] 第 ' + attempt + ' 次解析/校验失败', e, '原始返回片段：', rawSnippet)
     }
   }
+  throw new Error(
+    '能力图谱生成失败：模型 ' + model + ' 连续 2 次返回无法解析的内容（可能是 JSON 被截断或结构不符）。最后错误：' +
+      (lastErr?.message ?? '未知') +
+      '。原始返回片段：' +
+      rawSnippet.slice(0, 200)
+  )
 }
+
 
 function genNodesToTree(all: GenNode[], lineId: string): TreeNode[] {
   const now = Date.now()
@@ -515,9 +574,9 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
             return { done: false, children: decomposeNodesToTree(d2.nodes, parent, Date.now()) }
           }
         } catch (e2) {
-          console.warn('强制再拆也失败，用演示模板兜底', e2)
+          console.warn('强制再拆也失败', e2)
         }
-        return { done: false, children: demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id)) }
+        throw new Error('分解失败：节点名称含连接词但 AI 两次都未能拆分（' + parent.name + '）')
       }
       // 2) 名称 OK 但缺原子字段（minutes/test/practice 不达标）→ 要求补齐或继续拆
       if (!nodeIsAtomic(parent)) {
@@ -554,9 +613,9 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
             }
           }
         } catch (e2) {
-          console.warn('原子字段补齐失败，用演示模板兜底', e2)
+          console.warn('原子字段补齐失败', e2)
         }
-        return { done: false, children: demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id)) }
+        throw new Error('分解失败：AI 判定 done 但节点不满足原子定义，补齐/拆分重试也失败（' + parent.name + '）')
       }
       return { done: true, reason: data.reason, children: [] }
     }
@@ -565,8 +624,8 @@ export async function aiTryDecompose(parent: TreeNode, lineTitle: string): Promi
     }
     return { done: true, reason: 'AI 认为它已无需再分解', children: [] }
   } catch (e) {
-    console.warn('解析分解结果失败', e)
-    return { done: true, reason: 'AI 返回内容解析失败，跳过自动分解', children: [] }
+    console.error('分解请求解析失败', e)
+    throw new Error('分解失败：AI 返回无法解析的内容（' + parent.name + '）：' + (e as Error).message)
   }
 }
 
@@ -586,6 +645,8 @@ export interface DecomposeReport {
   maxNodesExceeded: boolean
   processed: number
   added: number
+  /** 分解请求失败次数（AI 返回无法解析等） */
+  failures: number
 }
 
 export async function aiAutoDecompose(
@@ -605,6 +666,7 @@ export async function aiAutoDecompose(
   let current = nodes
   let processed = 0
   let added = 0
+  let failures = 0
 
   const childrenOf = (list: TreeNode[]): Map<string, TreeNode[]> => {
     const cm = new Map<string, TreeNode[]>()
@@ -665,6 +727,7 @@ export async function aiAutoDecompose(
           }
         } catch (e) {
           console.warn('叶子自动分解失败：', leaf.name, e)
+          failures++
           doneIds.add(leaf.id)
         }
         opts.onProgress?.(processed, budget, current.length)
@@ -679,7 +742,8 @@ export async function aiAutoDecompose(
     budgetExceeded: processed >= budget && remaining.length > 0,
     maxNodesExceeded: current.length >= maxNodes && remaining.length > 0,
     processed,
-    added
+    added,
+    failures
   }
   return { nodes: current, report }
 }
@@ -708,6 +772,20 @@ export async function aiBuildDeepTree(
   })
   result.nodes = auto.nodes
   opts.onProgress?.(100, '完成')
+  // 生成溯源：合并分解报告
+  result.meta = {
+    ...result.meta,
+    decompositionCalls: auto.report.processed,
+    stopReason: auto.report.frontierExhausted
+      ? 'frontier_exhausted'
+      : auto.report.maxNodesExceeded
+        ? 'max_nodes_exceeded'
+        : 'budget_exceeded',
+    complete: auto.report.frontierExhausted
+  }
+  if (auto.report.failures > 0) {
+    result.note = (result.note ? result.note + '；' : '') + '⚠️ 有 ' + auto.report.failures + ' 个叶子分解失败（AI 返回无法解析）'
+  }
   if (auto.report.added > 0) {
     const stopNote = auto.report.frontierExhausted
       ? '所有叶子均已拆到原子单元（真·拆到底）'
@@ -879,7 +957,8 @@ export async function aiLightEdge(
       return { edgeWhy: data.edgeWhy.trim(), edgeExamples: data.examples.slice(0, 4).map((e) => e.trim()) }
     }
   } catch (e) {
-    console.warn('解析边说明失败', e)
+    console.error('解析边说明失败', e)
+    throw new Error('边点亮失败：AI 返回无法解析的内容（' + (e as Error).message + '）')
   }
-  return demoLightEdge(parent.name, child.name)
+  throw new Error('边点亮失败：AI 返回缺少 edgeWhy 或 examples')
 }

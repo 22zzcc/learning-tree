@@ -253,6 +253,15 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 }
 
 .tree-topbar .title { font-weight: 700; font-size: 15px; }
+
+.gen-badge {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+.gen-ai { background: var(--accent-soft); color: var(--accent); }
+.gen-demo { background: #fdf6e3; color: #8a6116; }
 .tree-topbar .stats { color: var(--muted); font-size: 12px; }
 .tree-topbar .spacer { flex: 1; }
 

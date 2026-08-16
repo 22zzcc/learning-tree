@@ -11,8 +11,14 @@ export interface ChatOpts {
   maxTokens?: number
   /** 覆盖全局模型（按模块单独配置时使用） */
   model?: string
+  /** V4 混合思考模型：thinking.type = enabled/disabled；缺省时跟随模型默认 */
+  thinking?: 'enabled' | 'disabled'
 }
 
+/**
+ * @deprecated V4 系列是混合思考模型，不能再靠名称猜是否是推理模型；
+ * 统一改为「先按支持发送参数，失败时自动降级重试」。
+ */
 export function isReasonerModel(model: string): boolean {
   return model.includes('reasoner') || model.includes('r1')
 }
@@ -24,7 +30,6 @@ export async function deepseekChat(
 ): Promise<string> {
   const url = settings.apiBase.replace(/\/+$/, '') + '/chat/completions'
   const modelName = opts.model || settings.model || 'deepseek-chat'
-  const reasoner = isReasonerModel(modelName)
 
   const buildBody = (includeExtras: boolean): Record<string, unknown> => {
     const body: Record<string, unknown> = {
@@ -32,11 +37,10 @@ export async function deepseekChat(
       messages,
       max_tokens: opts.maxTokens ?? 4096
     }
-    // 已知推理模型（reasoner/r1）不接受 temperature / response_format
-    // 未知模型（如 v4-flash / v4-pro）先按支持处理，失败时自动去掉重试
-    if (!reasoner && includeExtras) {
+    if (includeExtras) {
       body.temperature = opts.temperature ?? 0.6
       if (opts.json) body.response_format = { type: 'json_object' }
+      if (opts.thinking) body.thinking = { type: opts.thinking }
     }
     return body
   }
@@ -65,9 +69,9 @@ export async function deepseekChat(
     return await attempt(true)
   } catch (e) {
     const err = e as any
-    const retriable = /response_format|temperature|json_object|not support|不支持|invalid parameter/i.test(String(err.responseText ?? ''))
+    const retriable = /response_format|temperature|json_object|thinking|not support|不支持|invalid parameter/i.test(String(err.responseText ?? ''))
     if (err.httpStatus === 400 && retriable) {
-      console.warn('[deepseek] 该模型不接受 JSON/temperature 参数，自动去掉后重试')
+      console.warn('[deepseek] 模型不接受 JSON/temperature/thinking 参数，自动去掉后重试')
       return await attempt(false)
     }
     throw err

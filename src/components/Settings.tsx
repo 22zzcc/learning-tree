@@ -137,6 +137,17 @@ export default function Settings() {
             </button>
           </div>
         </div>
+        <div className="form-row">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={settings.skeletonNoThinking !== false}
+              onChange={(e) => saveSettings({ skeletonNoThinking: e.target.checked }).then(() => toast('已保存', 'success'))}
+              style={{ width: 'auto' }}
+            />
+            骨架 JSON 序列化关闭思考模式（V4 混合思考模型：结构化输出更快更稳，推荐）
+          </label>
+        </div>
         <div>
           <button className="btn" onClick={testConnection} disabled={testing || !s.apiKey}>
             {testing ? '测试中…' : '测试连接'}

@@ -7,7 +7,7 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -229,10 +229,13 @@ const autoRes = await aiAutoDecompose(
 )
 check('自动深度分解会持续拆分叶子', autoRes.nodes.length > autoBefore, 'got ' + autoRes.nodes.length)
 check('分解报告三态互斥且完整', [autoRes.report.frontierExhausted, autoRes.report.budgetExceeded, autoRes.report.maxNodesExceeded].filter(Boolean).length === 1, JSON.stringify(autoRes.report))
+check('分解报告含失败计数', typeof autoRes.report.failures === 'number')
 
 // ---- 8.6 Goal Specification + 原子判定 ----
 const gs = await aiGoalSpec(sd)
 check('目标规格书含交付物与成功标准', !!gs.goal && !!gs.deliverable && gs.criteria.length >= 3, JSON.stringify(gs))
+const genResult = await aiGenerateTree(sd, { id: 's', lineId: sd.id, stage: 'done', messages: [], checklist: [], round: 3 })
+check('演示模式生成结果带溯源（source=demo）', genResult.meta.source === 'demo' && genResult.meta.model === '内置模板', JSON.stringify(genResult.meta))
 const dk = (await aiDecomposeNode(td.root!, sd.title)).children
 check('演示分解出的叶子通过 nodeIsAtomic 硬判定', dk.every((k) => nodeIsAtomic(k)), 'first: ' + dk[0]?.name)
 

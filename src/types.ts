@@ -5,12 +5,25 @@ export type NodeState = 'unlearned' | 'learning' | 'mastered' | 'fuzzy'
 /** 学习线分类 */
 export type LineCategory = 'expert' | 'hobby' | 'career'
 
+/** 生成溯源：这棵树到底是谁生成的、怎么生成的 */
+export interface GenerationMeta {
+  source: 'ai' | 'demo'
+  model: string
+  generatedAt: number
+  skeletonAttempts: number
+  decompositionCalls: number
+  stopReason: 'frontier_exhausted' | 'budget_exceeded' | 'max_nodes_exceeded' | 'skeleton_only' | 'demo_mode'
+  complete: boolean
+}
+
 export interface LearningLine {
   id: string
   title: string        // 学习目标
   reason: string       // 为什么学（摸底时收集）
   /** 分类：expert=六个月专家线 hobby=兴趣爱好线 career=专业所需技术栈线（老数据可能缺失，UI 兜底为 expert） */
   category?: LineCategory
+  /** 生成溯源（这棵树由谁生成） */
+  generation?: GenerationMeta
   createdAt: number
   status: 'active' | 'done'
 }
@@ -63,6 +76,8 @@ export interface Settings {
   depth: DecomposeDepth
   /** 各 AI 模块的模型覆盖；缺省时跟随全局 model */
   models?: Partial<Record<AiModule, string>>
+  /** 骨架 JSON 序列化关闭思考模式（V4 混合思考模型：结构化输出更快更稳） */
+  skeletonNoThinking: boolean
   /** 演示数据版本号：升级演示数据时递增，用于老用户刷新 */
   demoVersion: number
 }

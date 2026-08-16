@@ -35,6 +35,7 @@ export async function getSettings(): Promise<Settings> {
     model: 'deepseek-chat',
     depth: 'deep',
     models: {},
+    skeletonNoThinking: true,
     demoVersion: 0
   }
 }

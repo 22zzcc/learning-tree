@@ -175,9 +175,10 @@ export default function TreeView({ lineId }: { lineId: string }) {
         if (masteredNames.has(n.name)) n.state = 'mastered'
         else if (fuzzyNames.has(n.name)) n.state = 'fuzzy'
       })
-      await db.transaction('rw', db.nodes, async () => {
+      await db.transaction('rw', db.nodes, db.lines, async () => {
         await db.nodes.where('lineId').equals(lineId).delete()
         await db.nodes.bulkAdd(newNodes)
+        await db.lines.update(lineId, { generation: result.meta })
       })
       selectNode(null)
       setFocus(null)
@@ -206,6 +207,21 @@ export default function TreeView({ lineId }: { lineId: string }) {
       <div className="tree-topbar">
         <button className="btn btn-sm" onClick={() => useAppStore.getState().go('home')}>← 学习线</button>
         <span className="title">{line?.title ?? '知识树'}</span>
+        {line?.generation && (
+          <span
+            className={'gen-badge ' + (line.generation.source === 'demo' ? 'gen-demo' : 'gen-ai')}
+            title={
+              '生成溯源：' +
+              (line.generation.source === 'demo'
+                ? '演示模式，未调用 AI'
+                : 'AI 生成 · 模型 ' + line.generation.model + ' · 骨架尝试 ' + line.generation.skeletonAttempts + ' 次 · 分解调用 ' + line.generation.decompositionCalls + ' 次 · 停止原因 ' + line.generation.stopReason)
+            }
+          >
+            {line.generation.source === 'demo'
+              ? '🧪 DEMO · 未调用 AI'
+              : '🤖 AI · ' + line.generation.model + ' · 分解 ' + line.generation.decompositionCalls + ' 次 · ' + (line.generation.complete ? '拆到底' : '未拆完')}
+          </span>
+        )}
         {stats && (
           <span className="stats">
             共 {stats.total} 个概念 · 已掌握 {stats.mastered} · 学习中 {stats.learning} · 模糊 {stats.fuzzy} · 未学 {stats.unlearned}

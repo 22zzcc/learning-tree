@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, uid, getSettings } from '../db'
-import type { LearningLine, OnboardingSession, TreeNode, LineCategory, GoalSpec } from '../types'
+import type { LearningLine, OnboardingSession, TreeNode, LineCategory, GoalSpec, GenerationMeta } from '../types'
 import { stateFromMastery } from '../types'
 import { aiChatQuestion, aiBuildDeepTree, aiBuildChecklistFromTree, aiGoalSpec, aiBuildDiagnosticQuiz, aiEvaluateAnswer, isDemoMode, type QuizItem, type QuizResult } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
@@ -26,6 +26,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
   const [quiz, setQuiz] = useState<QuizItem[] | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [quizScores, setQuizScores] = useState<QuizResult[] | null>(null)
+  const [genMeta, setGenMeta] = useState<GenerationMeta | null>(null)
   const settings = useLiveQuery(() => getSettings(), [])
   const demo = settings ? isDemoMode(settings) : true
   const openLine = useAppStore((s) => s.openLine)
@@ -52,7 +53,17 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
       })
       setLine(newLine)
       // Goal Specification：先把模糊目标澄清为可检验的终局能力定义
-      const spec = await aiGoalSpec(newLine)
+      let spec: GoalSpec
+      try {
+        spec = await aiGoalSpec(newLine)
+      } catch (e) {
+        spec = {
+          goal: newLine.title,
+          deliverable: '一件用「' + newLine.title + '」完成的真实成果',
+          criteria: ['能独立完成一次最小实践', '能向别人讲清楚它是什么']
+        }
+        toast('目标规格书生成失败，已用原始目标代替（可在下一步点「换一版」重试）：' + (e as Error).message.slice(0, 100), 'error')
+      }
       const withSpec: OnboardingSession = { ...sess, goalSpec: spec, stage: 'goal' }
       await db.onboarding.put(withSpec)
       setSession(withSpec)
@@ -60,7 +71,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
         goal: spec.goal,
         deliverable: spec.deliverable,
         criteriaText: spec.criteria.join('\n'),
-        options: spec.options ?? null
+        options: null
       })
     } catch (e) {
       toast('创建失败：' + (e as Error).message, 'error')
@@ -152,8 +163,10 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
         onProgress: (percent, msg) => setGenMsg(msg + '（' + percent + '%）')
       })
       if (result.note) toast(result.note, 'info')
+      setGenMeta(result.meta)
       if (skipDiagnostic) {
         await db.nodes.bulkAdd(result.nodes)
+        await db.lines.update(line.id, { generation: result.meta })
         await db.onboarding.put({ ...finalSession, stage: 'done' })
         toast('能力图谱已生成：' + result.nodes.length + ' 个能力节点', 'success')
         onClose()
@@ -271,6 +284,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
         }
       })
       await db.nodes.bulkAdd(pendingNodes)
+      if (genMeta) await db.lines.update(line.id, { generation: genMeta })
       await db.onboarding.put({ ...session, stage: 'done' })
       toast('你的个性化能力图谱已生成！掌握度来自自评 + 诊断测试评分', 'success')
       onClose()
