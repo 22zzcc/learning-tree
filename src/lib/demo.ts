@@ -7,7 +7,7 @@
 import { db, uid, getSettings, saveSettings } from '../db'
 import type { LearningLine, TreeNode, NodeState, ChecklistItem } from '../types'
 
-export const DEMO_VERSION = 2
+export const DEMO_VERSION = 3
 
 export interface DemoNodeSpec {
   name: string
@@ -576,6 +576,23 @@ async function seedDemoData(): Promise<void> {
   console.log('[demo] 已播种 3 条演示学习线，共', nodes.length, '个节点')
 }
 
+/** 按标题匹配内置演示树（用于「重新构建」恢复原始演示结构） */
+export function demoSpecForTitle(title: string): DemoNodeSpec | null {
+  const map: Record<string, DemoNodeSpec> = {
+    '掌握短除法': shortDivision,
+    '看懂基础经济新闻': economics,
+    '自由泳入门': swimming
+  }
+  return map[title] ?? null
+}
+
+/** 数据迁移：删除所有名称含「误区/易错点」的节点，返回删除数量 */
+export async function removeMistakeNodes(): Promise<number> {
+  const bad = await db.nodes.filter((n) => /误区|易错点/.test(n.name)).toArray()
+  if (bad.length > 0) await db.nodes.bulkDelete(bad.map((n) => n.id))
+  return bad.length
+}
+
 /**
  * 首次启动播种演示数据；演示数据升级（DEMO_VERSION）时，
  * 若用户尚未修改过演示线（标题仍与内置一致），则自动刷新为最新版。
@@ -583,6 +600,9 @@ async function seedDemoData(): Promise<void> {
 export async function ensureDemoSeed(): Promise<void> {
   const s = await getSettings()
   if (s.demoVersion >= DEMO_VERSION) return
+  // v3 迁移：全局清除所有「误区/易错点」节点（包括用户自建的学习线）
+  const removed = await removeMistakeNodes()
+  if (removed > 0) console.log('[migrate] 已删除', removed, '个误区/易错点节点')
   const lines = await db.lines.toArray()
   const demoTitles = DEMO_LINES.map((d) => d.title).sort()
   const isPureDemo = lines.length === 3 && lines.map((l) => l.title).sort().join('|') === demoTitles.join('|')

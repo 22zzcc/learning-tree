@@ -5,13 +5,11 @@ import * as d3 from 'd3'
 import type { TreeNode } from '../types'
 import { STATE_COLOR, STATE_BG, STATE_LABEL } from '../types'
 
-export const ROOT_W = 190
-export const ROOT_H = 56
-export const V_W = 48           // 第一层大类：竖向卡片宽度
-export const H_W = 160          // 章/节卡片宽度
-export const H_H = 50
-export const DX = 190           // 同级水平间距（窄）
-export const DY = 170           // 层间垂直间距
+export const ROOT_W = 64           // 根（书名）：竖向卡片
+export const ROOT_H = 84
+export const V_W = 48            // 全部节点：竖向卡片宽度
+export const DX = 140            // 同级水平间距（窄）
+export const DY = 170            // 层间垂直间距
 
 export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s
@@ -26,13 +24,10 @@ export function wrapName(name: string): string[] {
 }
 
 function cardSize(d: d3.HierarchyPointNode<TreeNode>): { w: number; h: number } {
-  if (d.depth === 0) return { w: ROOT_W, h: ROOT_H }
-  if (d.depth === 1) {
-    const chars = [...d.data.name]
-    const shown = Math.min(chars.length, 12)
-    return { w: V_W, h: Math.max(84, shown * 16 + 44) }
-  }
-  return { w: H_W, h: H_H }
+  const chars = [...d.data.name]
+  const shown = Math.min(chars.length, 12)
+  const w = d.depth === 0 ? ROOT_W : V_W
+  return { w, h: Math.max(84, shown * 16 + 44) }
 }
 
 export interface RenderTreeOpts {
@@ -91,8 +86,8 @@ export function renderTree(opts: RenderTreeOpts): void {
     maxX = Math.max(maxX, d.x)
     maxY = Math.max(maxY, d.y)
   })
-  const width = Math.max(800, maxX - minX + DX)
-  const height = Math.max(560, maxY + 140)
+  const width = Math.max(700, maxX - minX + DX)
+  const height = Math.max(560, maxY + 170)
 
   const svg = d3.select(svgEl)
   svg.selectAll('*').remove()
@@ -165,7 +160,7 @@ export function renderTree(opts: RenderTreeOpts): void {
         .attr('stroke-width', 4)
         .attr('stroke-linejoin', 'round')
         .style('cursor', 'pointer')
-        .text(truncate(l.target.data.edgeWhy, 14))
+        .text(truncate(l.target.data.edgeWhy, 12))
         .on('click', (event) => {
           event.stopPropagation()
           onSelect(l.target.data.id)
@@ -247,8 +242,8 @@ export function renderTree(opts: RenderTreeOpts): void {
       .attr('filter', 'url(#card-shadow)')
       .style('cursor', 'pointer')
 
-    if (d.depth === 1) {
-      // 大类：文字竖排 + 顶部编号
+    // 所有节点：章节编号（顶部横排）+ 名称竖排（一字一行）
+    if (d.depth > 0) {
       el.append('text')
         .attr('x', 0)
         .attr('y', -h / 2 + 14)
@@ -257,68 +252,25 @@ export function renderTree(opts: RenderTreeOpts): void {
         .attr('font-weight', 700)
         .attr('fill', '#68766f')
         .text(d.num ?? '')
-      const chars = [...d.data.name]
-      const shown = chars.length > 12 ? [...chars.slice(0, 11), '…'] : chars
-      shown.forEach((ch, i) => {
-        el.append('text')
-          .attr('x', 0)
-          .attr('y', -h / 2 + 32 + i * 16)
-          .attr('text-anchor', 'middle')
-          .attr('font-size', 14)
-          .attr('font-weight', 600)
-          .attr('fill', '#243b33')
-          .text(ch)
-      })
-      el.append('circle')
-        .attr('class', 'state-dot')
-        .attr('cx', 0)
-        .attr('cy', h / 2 - 14)
-        .attr('r', 5)
-        .attr('fill', STATE_COLOR[d.data.state])
-    } else if (d.depth === 0) {
-      // 目标（书名）
-      el.append('circle')
-        .attr('class', 'state-dot')
-        .attr('cx', -w / 2 + 15)
-        .attr('cy', -h / 2 + 13)
-        .attr('r', 6)
-        .attr('fill', STATE_COLOR[d.data.state])
-      const lines = wrapName(d.data.name)
-      const ys = lines.length === 1 ? [7] : [-7, 13]
-      lines.forEach((ln, i) => {
-        el.append('text')
-          .attr('x', 0)
-          .attr('y', ys[i])
-          .attr('text-anchor', 'middle')
-          .attr('font-size', lines.length === 1 ? 14 : 13)
-          .attr('font-weight', 600)
-          .attr('fill', '#243b33')
-          .text(ln)
-      })
-    } else {
-      // 章/节：顶部编号 + 单行名称
+    }
+    const chars = [...d.data.name]
+    const shown = chars.length > 12 ? [...chars.slice(0, 11), '…'] : chars
+    shown.forEach((ch, i) => {
       el.append('text')
         .attr('x', 0)
-        .attr('y', -h / 2 + 13)
+        .attr('y', -h / 2 + (d.depth > 0 ? 32 : 26) + i * 16)
         .attr('text-anchor', 'middle')
-        .attr('font-size', 9.5)
-        .attr('font-weight', 700)
-        .attr('fill', '#8a9891')
-        .text(d.num ?? '')
-      el.append('circle')
-        .attr('class', 'state-dot')
-        .attr('cx', -w / 2 + 13)
-        .attr('cy', -h / 2 + 13)
-        .attr('r', 5)
-        .attr('fill', STATE_COLOR[d.data.state])
-      el.append('text')
-        .attr('x', 0)
-        .attr('y', 8)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 13)
+        .attr('font-size', d.depth === 0 ? 15 : 14)
         .attr('font-weight', 600)
         .attr('fill', '#243b33')
-        .text(truncate(d.data.name, 10))
-    }
+        .text(ch)
+    })
+    // 状态圆点（卡片底部）
+    el.append('circle')
+      .attr('class', 'state-dot')
+      .attr('cx', 0)
+      .attr('cy', h / 2 - 14)
+      .attr('r', 5)
+      .attr('fill', STATE_COLOR[d.data.state])
   }
 }

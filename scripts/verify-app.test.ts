@@ -3,8 +3,8 @@ import './fake-idb-setup'
 import { JSDOM } from 'jsdom'
 import { writeFileSync } from 'node:fs'
 import * as d3 from 'd3'
-import { db } from '../src/db'
-import { ensureDemoSeed, demoTreeSpec } from '../src/lib/demo'
+import { db, uid } from '../src/db'
+import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
 import { aiLightEdge, aiDecomposeNode } from '../src/lib/ai'
@@ -208,6 +208,26 @@ renderTree({
   onTransformChange: noop
 })
 check('继续分解后树上节点数增长为 ' + (16 + kids.length), svgEl.querySelectorAll('g.node').length === 16 + kids.length, 'got ' + svgEl.querySelectorAll('g.node').length)
+
+// ---- 9. 误区节点清理迁移 ----
+await db.nodes.add({
+  id: uid(),
+  lineId: sd.id,
+  parentId: td.root!.id,
+  name: '误区：测试节点',
+  definition: 'x',
+  example: 'x',
+  whyImportant: 'x',
+  state: 'unlearned',
+  edgeWhy: null,
+  edgeExamples: [],
+  edgeLit: false,
+  createdAt: Date.now(),
+  updatedAt: Date.now()
+})
+const removed = await removeMistakeNodes()
+check('removeMistakeNodes 清除误区节点', removed === 1, 'got ' + removed)
+check('误区节点已从数据库消失', (await db.nodes.filter((n) => /误区/.test(n.name)).count()) === 0)
 
 // ---- 汇总 ----
 console.log('')

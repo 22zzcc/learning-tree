@@ -3,7 +3,7 @@
 import { getSettings, uid } from '../db'
 import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
-import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, type DemoNodeSpec } from './demo'
+import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, type DemoNodeSpec } from './demo'
 
 export function isDemoMode(settings: { apiKey: string }): boolean {
   return !settings.apiKey
@@ -117,10 +117,22 @@ interface GenNode {
   fuzzy?: boolean
 }
 
-export async function aiGenerateTree(line: LearningLine, session: OnboardingSession): Promise<TreeNode[]> {
+export interface GenerateTreeResult {
+  nodes: TreeNode[]
+  /** 需要提示用户的信息（演示模式 / 解析回退说明） */
+  note?: string
+}
+
+export async function aiGenerateTree(
+  line: LearningLine,
+  session: OnboardingSession,
+  opts: { rebuildDemo?: boolean } = {}
+): Promise<GenerateTreeResult> {
   const settings = await getSettings()
   if (isDemoMode(settings)) {
-    const nodes = specToNodes(demoTreeSpec(line.title, line.reason), line.id)
+    // 重新构建时：内置演示线恢复原始演示树，其余用通用模板
+    const spec = opts.rebuildDemo ? (demoSpecForTitle(line.title) ?? demoTreeSpec(line.title, line.reason)) : demoTreeSpec(line.title, line.reason)
+    const nodes = specToNodes(spec, line.id)
     // 演示模式下也尊重自评：勾了「会」的项标记为已掌握
     const knownNames = session.checklist.filter((c) => c.state === 'known').map((c) => c.name)
     const fuzzyNames = session.checklist.filter((c) => c.state === 'fuzzy').map((c) => c.name)
@@ -128,7 +140,12 @@ export async function aiGenerateTree(line: LearningLine, session: OnboardingSess
       if (knownNames.some((k) => n.name.includes(k.replace(/[「」]/g, '')) || k.includes(n.name))) n.state = 'mastered'
       else if (fuzzyNames.some((k) => n.name.includes(k.replace(/[「」]/g, '')) || k.includes(n.name))) n.state = 'fuzzy'
     })
-    return nodes
+    return {
+      nodes,
+      note: opts.rebuildDemo
+        ? '演示模式：未配置 API Key，已用内置演示知识树重建（配置 Key 后才会个性化生成）'
+        : '演示模式：未配置 API Key，使用内置模板生成（配置 Key 后才会个性化生成）'
+    }
   }
 
   const history = session.messages.map((m) => (m.role === 'ai' ? '教练' : '学员') + '：' + m.text).join('\n')
@@ -159,10 +176,13 @@ export async function aiGenerateTree(line: LearningLine, session: OnboardingSess
   try {
     const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
     const all: GenNode[] = [data.root, ...data.nodes.slice(0, 200)]
-    return genNodesToTree(all, line.id)
+    return { nodes: genNodesToTree(all, line.id) }
   } catch (e) {
-    console.error('解析知识树失败，回退演示模板', e)
-    return specToNodes(demoTreeSpec(line.title, line.reason), line.id)
+    console.error('解析知识树失败，回退内置模板', e)
+    return {
+      nodes: specToNodes(demoTreeSpec(line.title, line.reason), line.id),
+      note: 'AI 返回的内容解析失败，已用内置模板代替：' + String((e as Error).message).slice(0, 100)
+    }
   }
 }
 

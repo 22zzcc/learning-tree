@@ -143,7 +143,8 @@ export default function TreeView({ lineId }: { lineId: string }) {
         if (n.state === 'mastered') masteredNames.add(n.name)
         else if (n.state === 'fuzzy') fuzzyNames.add(n.name)
       })
-      const newNodes = await aiGenerateTree(line, session)
+      const result = await aiGenerateTree(line, session, { rebuildDemo: true })
+      const newNodes = result.nodes
       // 回填旧状态（按名称匹配）
       newNodes.forEach((n) => {
         if (masteredNames.has(n.name)) n.state = 'mastered'
@@ -157,7 +158,11 @@ export default function TreeView({ lineId }: { lineId: string }) {
       setFocus(null)
       initializedRef.current = false
       setTick((x) => x + 1)
-      toast('知识树已重新构建：' + newNodes.length + ' 个节点（已掌握的标记已保留）', 'success')
+      if (result.note) {
+        toast('知识树已重建：' + newNodes.length + ' 个节点｜' + result.note, 'info')
+      } else {
+        toast('知识树已重新构建：' + newNodes.length + ' 个节点（已掌握的标记已保留）', 'success')
+      }
     } catch (e) {
       toast('重建失败：' + (e as Error).message, 'error')
     } finally {
