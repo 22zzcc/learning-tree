@@ -7,7 +7,7 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, nodeNameIsAtomic, nodeIsAtomic } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -220,20 +220,27 @@ check('分解出的子节点都带原理', kids.every((k) => (k.principle ?? '')
 check('分解出的子节点带原子字段（分钟/测试/实践）', kids.every((k) => (k.minutes ?? 0) <= 90 && !!k.test && !!k.practice))
 await db.nodes.bulkAdd(kids)
 
-// ---- 8.5 自动深度分解（frontier 队列 + 预算） ----
+// ---- 8.5 自动深度分解（frontier 队列 + 预算 + 报告） ----
 const autoBefore = 3
-const autoGrown = await aiAutoDecompose(
+const autoRes = await aiAutoDecompose(
   { id: sd.id, title: sd.title, reason: '', createdAt: Date.now(), status: 'active' },
   sdNodes.slice(0, autoBefore),
   { budget: 8, maxNodes: 50 }
 )
-check('自动深度分解会持续拆分叶子', autoGrown.length > autoBefore, 'got ' + autoGrown.length)
+check('自动深度分解会持续拆分叶子', autoRes.nodes.length > autoBefore, 'got ' + autoRes.nodes.length)
+check('分解报告三态互斥且完整', [autoRes.report.frontierExhausted, autoRes.report.budgetExceeded, autoRes.report.maxNodesExceeded].filter(Boolean).length === 1, JSON.stringify(autoRes.report))
 
 // ---- 8.6 Goal Specification + 原子判定 ----
 const gs = await aiGoalSpec(sd)
 check('目标规格书含交付物与成功标准', !!gs.goal && !!gs.deliverable && gs.criteria.length >= 3, JSON.stringify(gs))
 const dk = (await aiDecomposeNode(td.root!, sd.title)).children
 check('演示分解出的叶子通过 nodeIsAtomic 硬判定', dk.every((k) => nodeIsAtomic(k)), 'first: ' + dk[0]?.name)
+
+// ---- 8.7 证据式诊断（出题 + 评分） ----
+const quizItems = await aiBuildDiagnosticQuiz(sd, dk.slice(0, 2))
+check('诊断出题为每个目标生成题目', quizItems.length === 2 && quizItems.every((q) => !!q.question && !!q.rubric))
+const evalRes = await aiEvaluateAnswer(sd, quizItems[0], '我会 softmax，它是把分数转成概率分布的函数，公式是 exp(x)/sum(exp(x))。')
+check('AI 评分返回 0~100 分数与反馈', evalRes.score >= 0 && evalRes.score <= 100 && !!evalRes.feedback, JSON.stringify(evalRes))
 const grown = buildTree(await db.nodes.where('lineId').equals(sd.id).toArray())
 renderTree({
   svgEl,

@@ -101,7 +101,7 @@ export interface GoalSpec {
 export interface OnboardingSession {
   id: string
   lineId: string
-  stage: 'goal' | 'chat' | 'checklist' | 'generating' | 'done'
+  stage: 'goal' | 'chat' | 'checklist' | 'quiz' | 'generating' | 'done'
   messages: ChatMessage[]
   checklist: ChecklistItem[]
   /** 目标规格书（澄清模糊目标后的终局能力定义） */

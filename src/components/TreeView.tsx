@@ -41,20 +41,25 @@ export default function TreeView({ lineId }: { lineId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineId])
 
-  // 剪枝：已完全掌握的子分支自动折叠（打开学习线时执行一次）
+  // 剪枝：已完全掌握的子分支自动折叠（每条学习线执行一次）
+  const prunedLineRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!treeData) return
+    if (!treeData || prunedLineRef.current === lineId) return
+    prunedLineRef.current = lineId
     const fullyMastered = new Set<string>()
     const isFullyMastered = (id: string): boolean => {
+      const node = treeData.byId.get(id)
+      if (!node || node.state !== 'mastered') return false
       const kids = treeData.childrenMap.get(id) ?? []
-      return kids.length > 0 && kids.every((k) => k.state === 'mastered' && isFullyMastered(k.id))
+      if (kids.length === 0) return true
+      return kids.every((k) => isFullyMastered(k.id))
     }
     treeData.byId.forEach((n) => {
       if (isFullyMastered(n.id)) fullyMastered.add(n.id)
     })
     if (fullyMastered.size > 0) setCollapsed(fullyMastered)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lineId])
+  }, [treeData, lineId])
 
   useEffect(() => {
     const svgEl = svgRef.current

@@ -18,15 +18,20 @@ function moduleModel(settings: Settings, module: AiModule): string {
 
 const GOAL_SPEC_SYSTEM = [
   '你是学习目标澄清教练。用户的原始目标可能很模糊（如「大模型构建」），你需要把它收敛成一个可执行、可检验的能力目标。',
-  '输出 JSON：{"goal": "终局能力目标（一句话，能+动词+宾语）", "deliverable": "可检验的交付物", "criteria": ["成功标准1", "成功标准2", "成功标准3"]}',
+  '输出 JSON：{"goal": "终局能力目标（一句话，能+动词+宾语）", "deliverable": "可检验的交付物", "criteria": ["成功标准1", "成功标准2", "成功标准3"], "options": ["方向A：…", "方向B：…"]}',
   '要求：',
   '1. deliverable 必须具体、可检验（一个真实可交付的东西，如「一个能训练并自回归生成的小 GPT」）；',
   '2. criteria 3~5 条，每条都能明确判定达成与否；',
-  '3. 目标有多个可能方向时（如「大模型构建」可以是从零实现 / 预训练 / 应用开发），选择最典型的方向并在 deliverable 中写明范围；',
+  '3. 如果原始目标明显有多个互斥方向（如「大模型构建」可能是从零实现 Transformer / 完整预训练 / SFT与RL后训练 / 工业 LLM 工程化），不要替用户决定：在 options 里列出 3~5 个候选方向（每个一句话描述），同时 goal/deliverable/criteria 先按第一个方向给出；目标没有歧义时不要输出 options；',
   '4. 用通俗中文；只输出 JSON。'
 ].join('\n')
 
-export async function aiGoalSpec(line: LearningLine): Promise<GoalSpec> {
+export interface GoalSpecResult extends GoalSpec {
+  /** 目标有歧义时的候选方向（用户选择后再生成最终规格书） */
+  options?: string[]
+}
+
+export async function aiGoalSpec(line: LearningLine, chosenScope?: string): Promise<GoalSpecResult> {
   const settings = await getSettings()
   if (isDemoMode(settings)) {
     return {
@@ -41,18 +46,24 @@ export async function aiGoalSpec(line: LearningLine): Promise<GoalSpec> {
       { role: 'system', content: GOAL_SPEC_SYSTEM },
       {
         role: 'user',
-        content: '用户的原始学习目标：' + line.title + '\n学习动机：' + (line.reason || '未说明') + '\n请给出目标规格书。'
+        content:
+          '用户的原始学习目标：' +
+          line.title +
+          '\n学习动机：' +
+          (line.reason || '未说明') +
+          (chosenScope ? '\n用户已明确选定方向：' + chosenScope + '。请严格按此方向生成规格书，不要输出 options。' : '\n请给出目标规格书。')
       }
     ],
     { json: true, temperature: 0.5, model: moduleModel(settings, 'skeleton') }
   )
   try {
-    const data = extractJson<GoalSpec>(answer)
+    const data = extractJson<GoalSpecResult>(answer)
     if (data.goal && data.deliverable && Array.isArray(data.criteria) && data.criteria.length > 0) {
       return {
         goal: data.goal.trim(),
         deliverable: data.deliverable.trim(),
-        criteria: data.criteria.slice(0, 6).map((c) => c.trim())
+        criteria: data.criteria.slice(0, 6).map((c) => c.trim()),
+        options: Array.isArray(data.options) ? data.options.slice(0, 5).map((o) => o.trim()) : undefined
       }
     }
   } catch (e) {
@@ -65,6 +76,7 @@ export async function aiGoalSpec(line: LearningLine): Promise<GoalSpec> {
 
 const CHAT_SYSTEM = [
   '你是友好耐心的学习摸底教练。你正在了解用户的学习基础，为定制学习路线做准备。',
+  '你会收到一份「目标规格书」（终局能力/交付物/成功标准）。你的提问必须围绕达成该目标所需的具体前置能力展开（例如目标是实现 Transformer，就问矩阵运算、张量 shape、PyTorch Module、next-token label 构造等），不要问宽泛的使用经历。',
   '规则：',
   '1. 每次只问一个问题，具体、口语化、好回答；',
   '2. 根据用户前面的回答调整追问方向，重点挖掘他「已经会什么」和「还差什么」；',
@@ -79,13 +91,16 @@ export async function aiChatQuestion(line: LearningLine, session: OnboardingSess
   const history = session.messages
     .slice(-6)
     .map((m) => ({ role: (m.role === 'ai' ? 'assistant' : 'user') as 'assistant' | 'user', content: m.text }))
+  const goalCtx = session.goalSpec
+    ? '\n目标规格书：\n- 终局能力：' + session.goalSpec.goal + '\n- 交付物：' + session.goalSpec.deliverable + '\n- 成功标准：' + session.goalSpec.criteria.join('；')
+    : ''
   const answer = await deepseekChat(
     settings,
     [
       { role: 'system', content: CHAT_SYSTEM.replace('{round}', String(session.round + 1)) },
       {
         role: 'user',
-        content: '用户想学：' + line.title + '（动机：' + (line.reason || '未说明') + '）。\n' + (history.length ? '之前的对话：' : '')
+        content: '用户想学：' + line.title + '（动机：' + (line.reason || '未说明') + '）。' + goalCtx + '\n' + (history.length ? '之前的对话：' : '')
       },
       ...history,
       { role: 'user', content: '请提出下一个摸底问题。' }
@@ -561,6 +576,18 @@ export async function aiDecomposeNode(parent: TreeNode, lineTitle: string): Prom
 }
 
 /** 自动深度分解：逐轮扫描叶子（每轮 24 个、8 路并发），把还能拆的概念继续拆到底（或达到上限） */
+/** 分解结果报告：明确「为什么停止」，而不是笼统地说完成 */
+export interface DecomposeReport {
+  /** 所有叶子都被判定为原子单元（真·拆到底） */
+  frontierExhausted: boolean
+  /** 操作预算耗尽（还有叶子没处理完） */
+  budgetExceeded: boolean
+  /** 达到节点总数上限 */
+  maxNodesExceeded: boolean
+  processed: number
+  added: number
+}
+
 export async function aiAutoDecompose(
   line: LearningLine,
   nodes: TreeNode[],
@@ -570,13 +597,14 @@ export async function aiAutoDecompose(
     maxNodes?: number
     onProgress?: (processed: number, budget: number, totalNodes: number) => void
   } = {}
-): Promise<TreeNode[]> {
+): Promise<{ nodes: TreeNode[]; report: DecomposeReport }> {
   const budget = opts.budget ?? 120
   const maxNodes = opts.maxNodes ?? 300
   const CONCURRENCY = 8
   const doneIds = new Set<string>()
   let current = nodes
   let processed = 0
+  let added = 0
 
   const childrenOf = (list: TreeNode[]): Map<string, TreeNode[]> => {
     const cm = new Map<string, TreeNode[]>()
@@ -613,7 +641,6 @@ export async function aiAutoDecompose(
         try {
           const res = await aiTryDecompose(leaf, line.title)
           if (res.fill) {
-            // AI 补齐了原子字段：写回节点并标记完成
             const target = current.find((n) => n.id === leaf.id)
             if (target) {
               target.minutes = res.fill.minutes
@@ -627,7 +654,7 @@ export async function aiAutoDecompose(
           } else if (res.children.length > 0) {
             if (current.length + res.children.length <= maxNodes) {
               current = [...current, ...res.children]
-              // 新叶子进入队列尾部（BFS：先处理完当前层，再处理下一层）
+              added += res.children.length
               const dm = depthOf(current)
               queue.push(...res.children.filter((c) => (dm.get(c.id) ?? 0) < 12))
             } else {
@@ -643,13 +670,19 @@ export async function aiAutoDecompose(
         opts.onProgress?.(processed, budget, current.length)
       })
     )
-    // 队列耗尽时再补采一次（处理因并发时序漏掉的叶子）
     if (queue.length === 0) queue = collectLeaves()
   }
-  return current
-}
 
-/** 完整构建流程：生成骨架 → （深度模式自动）分解到足够细小。onProgress 回报 0~100 百分比。 */
+  const remaining = collectLeaves()
+  const report: DecomposeReport = {
+    frontierExhausted: remaining.length === 0 && processed < budget && current.length < maxNodes,
+    budgetExceeded: processed >= budget && remaining.length > 0,
+    maxNodesExceeded: current.length >= maxNodes && remaining.length > 0,
+    processed,
+    added
+  }
+  return { nodes: current, report }
+}
 export async function aiBuildDeepTree(
   line: LearningLine,
   session: OnboardingSession,
@@ -665,7 +698,7 @@ export async function aiBuildDeepTree(
   opts.onProgress?.(20, '骨架完成，开始自动深度分解…')
   const before = result.nodes.length
   const budget = 120
-  result.nodes = await aiAutoDecompose(line, result.nodes, {
+  const auto = await aiAutoDecompose(line, result.nodes, {
     budget,
     maxNodes: 300,
     onProgress: (processed, totalBudget, totalNodes) => {
@@ -673,13 +706,135 @@ export async function aiBuildDeepTree(
       opts.onProgress?.(percent, '自动深度分解：已判断 ' + processed + ' 个叶子，已生成 ' + totalNodes + ' 个节点')
     }
   })
+  result.nodes = auto.nodes
   opts.onProgress?.(100, '完成')
-  if (result.nodes.length > before) {
-    result.note = (result.note ? result.note + '；' : '') + '已自动深度分解：' + before + ' → ' + result.nodes.length + ' 个节点（直到叶子耗尽或达到上限）'
+  if (auto.report.added > 0) {
+    const stopNote = auto.report.frontierExhausted
+      ? '所有叶子均已拆到原子单元（真·拆到底）'
+      : auto.report.maxNodesExceeded
+        ? '达到节点上限 ' + 300 + '（仍有叶子未拆完）'
+        : '分解预算耗尽（' + budget + ' 次操作，仍有叶子未拆完）'
+    result.note = (result.note ? result.note + '；' : '') + '已自动深度分解：' + before + ' → ' + result.nodes.length + ' 个节点。' + stopNote
   }
   return result
 }
 
+
+// ---- 4.5 证据式诊断：出题 + 评分 ----
+
+const QUIZ_SYSTEM = [
+  '你是学习诊断教练。为给定的原子能力节点出一道「诊断题」，用于检验用户是否真的掌握（而不是自我感觉）。',
+  '输出 JSON：{"question": "一道具体的题目", "rubric": "评分要点（1~3 条）"}',
+  '要求：',
+  '1. question 要求用户实际写出/动手回答，不能是选择题或「你懂吗」；',
+  '2. 紧扣该能力的最小可验证行为（如「给出 X 的 shape」）；',
+  '3. rubric 是给评分者看的要点，具体可判定。'
+].join('\n')
+
+export interface QuizItem {
+  nodeId: string
+  question: string
+  rubric: string
+}
+
+export async function aiBuildDiagnosticQuiz(line: LearningLine, targets: TreeNode[]): Promise<QuizItem[]> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) {
+    return targets.map((t) => ({
+      nodeId: t.id,
+      question: '请用自己的话解释「' + t.name + '」是什么，并给出一个具体例子。',
+      rubric: '能说清定义 + 给出具体例子即通过。'
+    }))
+  }
+  const results = await Promise.all(
+    targets.map(async (t) => {
+      const answer = await deepseekChat(
+        settings,
+        [
+          { role: 'system', content: QUIZ_SYSTEM },
+          {
+            role: 'user',
+            content:
+              '学习目标：' +
+              line.title +
+              '\n能力节点：「' +
+              t.name +
+              '」\n定义：' +
+              t.definition +
+              '\n掌握标准（test）：' +
+              (t.test ?? '未提供') +
+              '\n请出一道诊断题。'
+          }
+        ],
+        { json: true, temperature: 0.6, model: moduleModel(settings, 'checklist') }
+      )
+      try {
+        const data = extractJson<{ question: string; rubric: string }>(answer)
+        return { nodeId: t.id, question: data.question.trim(), rubric: (data.rubric ?? '').trim() }
+      } catch (e) {
+        console.warn('诊断题解析失败，使用通用题', e)
+        return { nodeId: t.id, question: '请用自己的话解释「' + t.name + '」，并给出一个具体例子。', rubric: '能说清定义 + 给出具体例子即通过。' }
+      }
+    })
+  )
+  return results
+}
+
+const EVAL_SYSTEM = [
+  '你是严格的诊断评分员。根据评分要点，对用户的答案打分。',
+  '输出 JSON：{"score": 78, "feedback": "一句反馈"}',
+  '要求：',
+  '1. score 是 0~100 的整数，严格按要点给分；',
+  '2. feedback 一句话：先说哪里对，再说缺什么。'
+].join('\n')
+
+export interface QuizResult {
+  nodeId: string
+  score: number
+  feedback: string
+}
+
+export async function aiEvaluateAnswer(line: LearningLine, item: QuizItem, answer: string): Promise<QuizResult> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) {
+    const text = answer.trim()
+    const score = text.length === 0 ? 0 : text.length > 30 ? 70 : 40
+    return {
+      nodeId: item.nodeId,
+      score,
+      feedback: score >= 60 ? '演示模式：答案有一定内容，视为基本掌握。' : '演示模式：答案太简短，建议补充分数不足。'
+    }
+  }
+  const res = await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: EVAL_SYSTEM },
+      {
+        role: 'user',
+        content:
+          '学习目标：' +
+          line.title +
+          '\n能力节点：「' +
+          item.nodeId +
+          '」\n题目：' +
+          item.question +
+          '\n评分要点：' +
+          item.rubric +
+          '\n用户答案：\n' +
+          answer.trim() +
+          '\n请评分。'
+      }
+    ],
+    { json: true, temperature: 0.3, model: moduleModel(settings, 'checklist') }
+  )
+  try {
+    const data = extractJson<{ score: number; feedback: string }>(res)
+    return { nodeId: item.nodeId, score: Math.max(0, Math.min(100, Math.round(Number(data.score) || 0))), feedback: (data.feedback ?? '').trim() }
+  } catch (e) {
+    console.warn('评分解析失败', e)
+    return { nodeId: item.nodeId, score: 50, feedback: '评分失败，按 50 分计入。' }
+  }
+}
 
 // ---- 5. 点亮边：生成「为什么关联 + 相似例子」 ----
 
