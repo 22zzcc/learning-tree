@@ -109,7 +109,7 @@ export default function OnboardingWizard({ onClose }: { onClose: () => void }) {
   async function generateTree(skipChecklist = false) {
     if (!line || !session || busy) return
     setBusy(true)
-    setGenMsg('AI 正在生成你的知识树骨架（约 10~30 秒）…')
+    setGenMsg('AI 正在生成你的知识树骨架（标准模式约 10~30 秒，深度模式约 1~3 分钟）…')
     try {
       const finalSession = skipChecklist ? { ...session, checklist: [], stage: 'generating' as const } : { ...session, stage: 'generating' as const }
       const nodes = await aiGenerateTree(line, finalSession)

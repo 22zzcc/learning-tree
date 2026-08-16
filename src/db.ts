@@ -28,7 +28,14 @@ export function uid(): string {
 
 export async function getSettings(): Promise<Settings> {
   const s = await db.settings.get('app')
-  return s ?? { id: 'app', apiKey: '', apiBase: 'https://api.deepseek.com', model: 'deepseek-chat' }
+  return s ?? {
+    id: 'app',
+    apiKey: '',
+    apiBase: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    depth: 'deep',
+    demoVersion: 0
+  }
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {

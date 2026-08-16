@@ -5,25 +5,40 @@ export interface AiChatMessage {
   content: string
 }
 
+export interface ChatOpts {
+  json?: boolean
+  temperature?: number
+  maxTokens?: number
+}
+
+export function isReasonerModel(model: string): boolean {
+  return model.includes('reasoner') || model.includes('r1')
+}
+
 export async function deepseekChat(
   settings: Settings,
   messages: AiChatMessage[],
-  opts: { json?: boolean; temperature?: number } = {}
+  opts: ChatOpts = {}
 ): Promise<string> {
   const url = settings.apiBase.replace(/\/+$/, '') + '/chat/completions'
+  const reasoner = isReasonerModel(settings.model || 'deepseek-chat')
+  const body: Record<string, unknown> = {
+    model: settings.model || 'deepseek-chat',
+    messages,
+    max_tokens: opts.maxTokens ?? 4096
+  }
+  // 推理模型不接受 temperature / response_format，由 prompt + 提取器保证 JSON
+  if (!reasoner) {
+    body.temperature = opts.temperature ?? 0.6
+    if (opts.json) body.response_format = { type: 'json_object' }
+  }
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: 'Bearer ' + settings.apiKey
     },
-    body: JSON.stringify({
-      model: settings.model || 'deepseek-chat',
-      messages,
-      temperature: opts.temperature ?? 0.6,
-      max_tokens: 4096,
-      ...(opts.json ? { response_format: { type: 'json_object' } } : {})
-    })
+    body: JSON.stringify(body)
   })
   if (!res.ok) {
     const text = await res.text().catch(() => '')

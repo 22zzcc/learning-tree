@@ -8,11 +8,11 @@ export default function Settings() {
   const settings = useLiveQuery(() => getSettings(), [])
   const toast = useAppStore((s) => s.toast)
   const [testing, setTesting] = useState(false)
-  const [draft, setDraft] = useState<{ apiKey: string; apiBase: string; model: string } | null>(null)
+  const [draft, setDraft] = useState<{ apiKey: string; apiBase: string; model: string; depth: 'standard' | 'deep' } | null>(null)
 
   if (!settings) return <div className="muted">加载中…</div>
 
-  const s = draft ?? { apiKey: settings.apiKey, apiBase: settings.apiBase, model: settings.model }
+  const s = draft ?? { apiKey: settings.apiKey, apiBase: settings.apiBase, model: settings.model, depth: settings.depth }
 
   async function commit(patch: Partial<typeof s>) {
     const next = { ...s, ...patch }
@@ -92,13 +92,39 @@ export default function Settings() {
           />
         </div>
         <div className="form-row">
-          <label>模型</label>
-          <input
-            type="text"
+          <label>模型（deepseek-chat = 普通模型，快；deepseek-reasoner = 推理模型，知识分解更深入、原理讲得更透，但更慢）</label>
+          <select
             value={s.model}
-            onChange={(e) => setDraft({ ...s, model: e.target.value })}
-            onBlur={() => commit({ model: s.model })}
-          />
+            onChange={(e) => {
+              const next = { ...s, model: e.target.value }
+              setDraft(next)
+              commit({ model: e.target.value })
+            }}
+            style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', fontSize: 14, background: '#fff', color: 'var(--ink)' }}
+          >
+            <option value="deepseek-chat">deepseek-chat（默认，快）</option>
+            <option value="deepseek-reasoner">deepseek-reasoner（推理模型，更深入）</option>
+          </select>
+          <p className="muted small" style={{ margin: '4px 0 0' }}>
+            其他 OpenAI 兼容模型可在这里临时改回文本后填写；不填 apiBase 时默认走 DeepSeek 官方接口。
+          </p>
+        </div>
+        <div className="form-row">
+          <label>知识树分解深度</label>
+          <div className="seg" style={{ alignSelf: 'flex-start' }}>
+            <button
+              className={s.depth === 'standard' ? 'active known' : ''}
+              onClick={() => commit({ depth: 'standard' })}
+            >
+              标准（3~5 层，15~40 节点）
+            </button>
+            <button
+              className={s.depth === 'deep' ? 'active known' : ''}
+              onClick={() => commit({ depth: 'deep' })}
+            >
+              深度（5~8 层，40~150 节点，分支不设上限）
+            </button>
+          </div>
         </div>
         <div>
           <button className="btn" onClick={testConnection} disabled={testing || !s.apiKey}>

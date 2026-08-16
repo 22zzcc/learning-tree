@@ -4,10 +4,10 @@ import { JSDOM } from 'jsdom'
 import { writeFileSync } from 'node:fs'
 import * as d3 from 'd3'
 import { db } from '../src/db'
-import { seedDemoIfEmpty } from '../src/lib/demo'
+import { ensureDemoSeed, demoTreeSpec } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -39,7 +39,7 @@ function check(name: string, cond: boolean, extra?: string) {
 const noop = () => {}
 
 // ---- 1. 播种与数据 ----
-await seedDemoIfEmpty()
+await ensureDemoSeed()
 const lines = await db.lines.toArray()
 check('播种 3 条演示学习线', lines.length === 3, 'got ' + lines.length)
 const allNodes = await db.nodes.toArray()
@@ -172,6 +172,35 @@ renderTree({
   onTransformChange: noop
 })
 check('自由泳树渲染 13 节点 12 边 0 标签', svgEl.querySelectorAll('g.node').length === 13 && svgEl.querySelectorAll('path.link').length === 12 && svgEl.querySelectorAll('text.edge-label').length === 0)
+
+// ---- 7. 原理字段与深度模板 ----
+const sdRoot = sdNodes.find((n) => n.parentId === null)!
+check('短除法根节点带原理字段', (sdRoot.principle ?? '').length > 10, sdRoot.principle)
+const specDepth = (s: any): number => 1 + Math.max(0, ...((s.children ?? []) as any[]).map((c) => specDepth(c)))
+const tpl = demoTreeSpec('测试目标', '测试原因')
+check('演示模板深度 ≥ 4 层', specDepth(tpl) >= 4, 'got ' + specDepth(tpl))
+
+// ---- 8. 继续分解（分支不设上限） ----
+const kids = await aiDecomposeNode(td.root!, sd.title)
+check('演示模式分解出 ≥2 个子节点且父节点正确', kids.length >= 2 && kids.every((k) => k.parentId === td.root!.id), 'got ' + kids.length)
+check('分解出的子节点都带原理', kids.every((k) => (k.principle ?? '').length > 0))
+await db.nodes.bulkAdd(kids)
+const grown = buildTree(await db.nodes.where('lineId').equals(sd.id).toArray())
+renderTree({
+  svgEl,
+  root: grown.root!,
+  childrenMap: grown.childrenMap,
+  collapsed: new Set(),
+  selectedId: td.root!.id,
+  transform: d3.zoomIdentity,
+  fitRoot: true,
+  onSelect: noop,
+  onToggleCollapse: noop,
+  onFocus: noop,
+  onBackgroundClick: noop,
+  onTransformChange: noop
+})
+check('继续分解后树上节点数增长为 ' + (16 + kids.length), svgEl.querySelectorAll('g.node').length === 16 + kids.length, 'got ' + svgEl.querySelectorAll('g.node').length)
 
 // ---- 汇总 ----
 console.log('')

@@ -180,6 +180,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
           <NodePanel
             node={selectedNode}
             parent={selectedParent}
+            lineTitle={line?.title ?? ''}
             onFocus={() => {
               setFocus(selectedNode.id)
               initializedRef.current = false

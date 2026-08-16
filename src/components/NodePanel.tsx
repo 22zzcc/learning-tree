@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { db } from '../db'
 import type { TreeNode } from '../types'
 import { STATE_LABEL, STATE_COLOR } from '../types'
-import { aiLightEdge } from '../lib/ai'
+import { aiLightEdge, aiDecomposeNode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
 const STATES: TreeNode['state'][] = ['unlearned', 'learning', 'mastered', 'fuzzy']
@@ -10,16 +10,19 @@ const STATES: TreeNode['state'][] = ['unlearned', 'learning', 'mastered', 'fuzzy
 export default function NodePanel({
   node,
   parent,
+  lineTitle,
   onFocus,
   onDeleteBranch
 }: {
   node: TreeNode
   parent: TreeNode | null
+  lineTitle: string
   onFocus: () => void
   onDeleteBranch: () => void
 }) {
   const toast = useAppStore((s) => s.toast)
   const [lighting, setLighting] = useState(false)
+  const [decomposing, setDecomposing] = useState(false)
 
   async function setState(state: TreeNode['state']) {
     if (state === node.state) return
@@ -46,6 +49,19 @@ export default function NodePanel({
     }
   }
 
+  async function decompose() {
+    setDecomposing(true)
+    try {
+      const children = await aiDecomposeNode(node, lineTitle)
+      await db.nodes.bulkAdd(children)
+      toast('已分解出 ' + children.length + ' 个更细小的知识领域！觉得还不够细可以继续点', 'success')
+    } catch (e) {
+      toast('分解失败：' + (e as Error).message, 'error')
+    } finally {
+      setDecomposing(false)
+    }
+  }
+
   return (
     <aside className="node-panel">
       <h2>{node.name}</h2>
@@ -67,10 +83,30 @@ export default function NodePanel({
         <h4>📖 定义</h4>
         <p>{node.definition}</p>
       </div>
+
+      {node.principle && (
+        <div className="section">
+          <h4>⚙️ 原理</h4>
+          <p>{node.principle}</p>
+        </div>
+      )}
+
       <div className="section">
         <h4>🔍 例子</h4>
         <p>{node.example}</p>
       </div>
+
+      {node.pitfalls && node.pitfalls.length > 0 && (
+        <div className="section">
+          <h4>⚠️ 易错点</h4>
+          <ul className="example-list">
+            {node.pitfalls.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="section">
         <h4>💡 为什么重要</h4>
         <p>{node.whyImportant}</p>
@@ -108,6 +144,9 @@ export default function NodePanel({
       )}
 
       <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button className="btn btn-primary" onClick={decompose} disabled={decomposing}>
+          {decomposing ? 'AI 分解中…' : '🔬 继续分解此节点（不够细就再拆）'}
+        </button>
         <button className="btn" onClick={onFocus}>🔍 聚焦此节点（只看这棵子树）</button>
         <button className="btn btn-danger" onClick={onDeleteBranch}>🗑 删除此分支</button>
       </div>

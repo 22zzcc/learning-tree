@@ -1,9 +1,9 @@
 // ---------- AI 编排：有 API Key 走 DeepSeek，没有则走演示模板 ----------
 
-import { getSettings } from '../db'
-import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem } from '../types'
+import { getSettings, uid } from '../db'
+import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
-import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, type DemoNodeSpec } from './demo'
+import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, type DemoNodeSpec } from './demo'
 
 export function isDemoMode(settings: { apiKey: string }): boolean {
   return !settings.apiKey
@@ -71,7 +71,7 @@ export async function aiBuildChecklist(line: LearningLine, session: OnboardingSe
   )
   try {
     const data = extractJson<{ items: { name: string }[] }>(answer)
-    const items = data.items.slice(0, 15).map((it) => ({ id: crypto.randomUUID(), name: it.name.trim(), state: 'unknown' as const }))
+    const items = data.items.slice(0, 15).map((it) => ({ id: uid(), name: it.name.trim(), state: 'unknown' as const }))
     if (items.length > 0) return items
   } catch (e) {
     console.warn('解析清单失败，回退演示清单', e)
@@ -79,31 +79,39 @@ export async function aiBuildChecklist(line: LearningLine, session: OnboardingSe
   return demoChecklist(line.title)
 }
 
-// ---- 3. 生成知识树骨架 ----
+// ---- 3. 生成知识树骨架（分支不设上限，越详细越好） ----
 
-const TREE_SYSTEM = [
-  '你是一位知识图谱学习教练。根据用户的学习目标与摸底结果，生成一棵「垂直知识树」（根在上，向下分支）。',
-  '输出必须是 JSON，格式：',
-  '{',
-  '  "root": { "name": "学习目标", "definition": "...", "example": "...", "whyImportant": "..." },',
-  '  "nodes": [',
-  '    { "name": "概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "parentPath": ["从根到父节点的概念名数组"], "mastered": false, "fuzzy": false }',
-  '  ]',
-  '}',
-  '硬性要求：',
-  '1. parentPath 是从根到父节点的概念名数组；parentPath 为空数组表示直接挂在根下；根节点不要出现在 nodes 里。',
-  '2. 树深 3~5 层，每层 3~7 个分支，总节点数 15~40。',
-  '3. 粒度自适应：每片叶子必须满足「完全没接触过的人 5~10 分钟能看懂：一个定义 + 一个例子 + 一句为什么重要」；不满足就继续分解，太细碎就合并。',
-  '4. 用户已掌握的概念仍保留在树上，标记 mastered=true（显示为绿色）；用户模糊的概念标记 fuzzy=true（显示为黄色），不标 mastered。',
-  '5. 所有文字用通俗中文，面向该领域新手；definition 1~2 句，example 必须具体（带数字或场景），whyImportant 1 句。',
-  '6. 只输出 JSON，不要输出任何解释。'
-].join('\n')
+function treeSystemPrompt(depth: DecomposeDepth): string {
+  const rules =
+    depth === 'deep'
+      ? '1. 树深 5~8 层，总节点数 40~150；每层的分支数量不设上限，越详细越好，宁细勿粗。'
+      : '1. 树深 3~5 层，每层 3~7 个分支，总节点数 15~40。'
+  return [
+    '你是一位知识图谱学习教练。根据用户的学习目标与摸底结果，生成一棵「垂直知识树」（根在上，向下分支）。',
+    '输出必须是 JSON，格式：',
+    '{',
+    '  "root": { "name": "学习目标", "definition": "...", "example": "...", "whyImportant": "...", "principle": "...", "pitfalls": [] },',
+    '  "nodes": [',
+    '    { "name": "概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理", "pitfalls": ["易错点"], "parentPath": ["从根到父节点的概念名数组"], "mastered": false, "fuzzy": false }',
+    '  ]',
+    '}',
+    '硬性要求：',
+    rules,
+    '2. 粒度自适应：每片叶子必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」；不满足就继续分解，宁可分解过头，也不要留下看不懂的叶子。',
+    '3. principle 是「这个知识点背后的原理是什么」，用一句最通俗的话解释它为什么成立/为什么这样设计；pitfalls 是新手最常见的 0~2 个易错点。',
+    '4. 用户已掌握的概念仍保留在树上，标记 mastered=true（显示为绿色）；用户模糊的概念标记 fuzzy=true（显示为黄色），不标 mastered。',
+    '5. 所有文字用通俗中文，面向该领域新手；definition 1~2 句，example 必须具体（带数字或场景）。',
+    '6. 只输出 JSON，不要输出任何解释。'
+  ].join('\n')
+}
 
 interface GenNode {
   name: string
   definition: string
   example: string
   whyImportant: string
+  principle?: string
+  pitfalls?: string[]
   parentPath: string[]
   mastered?: boolean
   fuzzy?: boolean
@@ -130,7 +138,7 @@ export async function aiGenerateTree(line: LearningLine, session: OnboardingSess
   const answer = await deepseekChat(
     settings,
     [
-      { role: 'system', content: TREE_SYSTEM },
+      { role: 'system', content: treeSystemPrompt(settings.depth) },
       {
         role: 'user',
         content: [
@@ -145,11 +153,11 @@ export async function aiGenerateTree(line: LearningLine, session: OnboardingSess
         ].join('\n')
       }
     ],
-    { json: true, temperature: 0.5 }
+    { json: true, temperature: 0.5, maxTokens: settings.depth === 'deep' ? 8000 : 4096 }
   )
   try {
     const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
-    const all: GenNode[] = [data.root, ...data.nodes.slice(0, 60)]
+    const all: GenNode[] = [data.root, ...data.nodes.slice(0, 200)]
     return genNodesToTree(all, line.id)
   } catch (e) {
     console.error('解析知识树失败，回退演示模板', e)
@@ -165,13 +173,15 @@ function genNodesToTree(all: GenNode[], lineId: string): TreeNode[] {
     const parents = i === 0 ? [] : (g.parentPath ?? [])
     const parent = i === 0 ? null : byPath.get(parents.join('/')) ?? null
     const node: TreeNode = {
-      id: crypto.randomUUID(),
+      id: uid(),
       lineId,
       parentId: parent?.id ?? null,
       name: g.name.trim(),
       definition: g.definition.trim(),
       example: g.example.trim(),
       whyImportant: g.whyImportant.trim(),
+      principle: g.principle?.trim(),
+      pitfalls: (g.pitfalls ?? []).map((p) => p.trim()).filter(Boolean),
       state: i === 0 ? 'learning' : g.mastered ? 'mastered' : g.fuzzy ? 'fuzzy' : 'unlearned',
       edgeWhy: null,
       edgeExamples: [],
@@ -185,34 +195,112 @@ function genNodesToTree(all: GenNode[], lineId: string): TreeNode[] {
   return result
 }
 
+function specNode(spec: DemoNodeSpec, lineId: string, parentId: string | null): TreeNode {
+  const now = Date.now()
+  return {
+    id: uid(),
+    lineId,
+    parentId,
+    name: spec.name,
+    definition: spec.definition,
+    example: spec.example,
+    whyImportant: spec.whyImportant,
+    principle: spec.principle,
+    pitfalls: spec.pitfalls ?? [],
+    state: spec.state ?? 'unlearned',
+    edgeWhy: spec.edgeWhy ?? null,
+    edgeExamples: spec.edgeExamples ?? [],
+    edgeLit: !!spec.edgeWhy,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
 function specToNodes(spec: DemoNodeSpec, lineId: string): TreeNode[] {
   const result: TreeNode[] = []
   const queue: { spec: DemoNodeSpec; parentId: string | null }[] = [{ spec, parentId: null }]
-  const now = Date.now()
   while (queue.length > 0) {
     const item = queue.shift()!
-    const node: TreeNode = {
-      id: crypto.randomUUID(),
-      lineId,
-      parentId: item.parentId,
-      name: item.spec.name,
-      definition: item.spec.definition,
-      example: item.spec.example,
-      whyImportant: item.spec.whyImportant,
-      state: item.spec.state ?? 'unlearned',
-      edgeWhy: item.spec.edgeWhy ?? null,
-      edgeExamples: item.spec.edgeExamples ?? [],
-      edgeLit: !!item.spec.edgeWhy,
-      createdAt: now,
-      updatedAt: now
-    }
+    const node = specNode(item.spec, lineId, item.parentId)
     result.push(node)
     ;(item.spec.children ?? []).forEach((c) => queue.push({ spec: c, parentId: node.id }))
   }
   return result
 }
 
-// ---- 4. 点亮边：生成「为什么关联 + 相似例子」 ----
+// ---- 4. 继续分解：把任意节点拆成更细小的知识领域 ----
+
+const DECOMPOSE_SYSTEM = [
+  '你是知识图谱学习教练。用户觉得概念「X」还不够细，需要把它分解成更细小的知识领域。',
+  '输出 JSON：{"nodes": [{"name": "子概念名", "definition": "通俗定义", "example": "具体例子", "whyImportant": "为什么重要", "principle": "通俗原理", "pitfalls": ["易错点"]}]}',
+  '硬性要求：',
+  '1. 分解成 3~6 个子概念，分支不设上限；',
+  '2. 每个子概念必须满足「完全没接触过的人 5 分钟内能看懂：一个定义 + 一个原理 + 一个例子 + 一句为什么重要」，达不到就拆得更细；',
+  '3. 子概念之间不重叠，合起来能完整覆盖「X」；',
+  '4. 用通俗中文，面向新手；example 必须具体；',
+  '5. 只输出 JSON，不要输出任何解释。'
+].join('\n')
+
+interface DecomposeNode {
+  name: string
+  definition: string
+  example: string
+  whyImportant: string
+  principle?: string
+  pitfalls?: string[]
+}
+
+export async function aiDecomposeNode(parent: TreeNode, lineTitle: string): Promise<TreeNode[]> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) {
+    return demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id))
+  }
+
+  const answer = await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: DECOMPOSE_SYSTEM },
+      {
+        role: 'user',
+        content: [
+          '学习目标（树根）：' + lineTitle,
+          '要分解的概念 X：' + parent.name,
+          'X 的定义：' + parent.definition,
+          'X 的例子：' + parent.example,
+          'X 的原理：' + (parent.principle || '（未提供）'),
+          '请把 X 分解成更细小的知识领域。'
+        ].join('\n')
+      }
+    ],
+    { json: true, temperature: 0.5, maxTokens: 4000 }
+  )
+  try {
+    const data = extractJson<{ nodes: DecomposeNode[] }>(answer)
+    const now = Date.now()
+    return data.nodes.slice(0, 8).map((g) => ({
+      id: uid(),
+      lineId: parent.lineId,
+      parentId: parent.id,
+      name: g.name.trim(),
+      definition: g.definition.trim(),
+      example: g.example.trim(),
+      whyImportant: g.whyImportant.trim(),
+      principle: g.principle?.trim(),
+      pitfalls: (g.pitfalls ?? []).map((p) => p.trim()).filter(Boolean),
+      state: 'unlearned' as const,
+      edgeWhy: null,
+      edgeExamples: [],
+      edgeLit: false,
+      createdAt: now,
+      updatedAt: now
+    }))
+  } catch (e) {
+    console.warn('解析分解结果失败，回退演示模板', e)
+    return demoDecompose(parent.name).map((s) => specNode(s, parent.lineId, parent.id))
+  }
+}
+
+// ---- 5. 点亮边：生成「为什么关联 + 相似例子」 ----
 
 const LIGHT_SYSTEM = [
   '你是知识图谱学习教练。用户刚学完概念 A，知识树要从 A 引出下一个概念 B。',

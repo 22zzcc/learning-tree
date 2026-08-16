@@ -18,6 +18,10 @@ export interface TreeNode {
   definition: string
   example: string
   whyImportant: string
+  /** 通俗原理：这个知识点为什么成立 / 为什么这样设计（可选） */
+  principle?: string
+  /** 新手最常见的易错点（可选） */
+  pitfalls?: string[]
   state: NodeState
   // 从父节点到本节点的「边」：为什么关联 + 相似例子（按需点亮）
   edgeWhy: string | null
@@ -35,11 +39,17 @@ export interface ProfileEntry {
   addedAt: number
 }
 
+export type DecomposeDepth = 'standard' | 'deep'
+
 export interface Settings {
   id: string
   apiKey: string
   apiBase: string
   model: string
+  /** 知识树分解深度：standard = 3~5 层/15~40 节点；deep = 5~8 层/40~150 节点、分支不设上限 */
+  depth: DecomposeDepth
+  /** 演示数据版本号：升级演示数据时递增，用于老用户刷新 */
+  demoVersion: number
 }
 
 export interface ChatMessage {
