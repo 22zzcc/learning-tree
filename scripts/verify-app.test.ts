@@ -7,7 +7,7 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -236,6 +236,22 @@ const gs = await aiGoalSpec(sd)
 check('目标规格书含交付物与成功标准', !!gs.goal && !!gs.deliverable && gs.criteria.length >= 3, JSON.stringify(gs))
 const genResult = await aiGenerateTree(sd, { id: 's', lineId: sd.id, stage: 'done', messages: [], checklist: [], round: 3 })
 check('演示模式生成结果带溯源（source=demo）', genResult.meta.source === 'demo' && genResult.meta.model === '内置模板', JSON.stringify(genResult.meta))
+
+// ---- 8.8 各模块独立模型解析（证明「独立调用」真实生效） ----
+const fakeSettings = {
+  id: 'app',
+  apiKey: 'sk-x',
+  apiBase: 'https://api.deepseek.com',
+  model: 'deepseek-v4-pro',
+  depth: 'deep' as const,
+  skeletonNoThinking: true,
+  decomposeNoThinking: true,
+  demoVersion: 0,
+  models: { decompose: 'deepseek-v4-flash', skeleton: '' }
+}
+check('模块覆盖优先于全局默认', moduleModel(fakeSettings, 'decompose') === 'deepseek-v4-flash')
+check('未单独设置的模块跟随全局默认', moduleModel(fakeSettings, 'chat') === 'deepseek-v4-pro')
+check('空字符串覆盖回退到全局默认', moduleModel(fakeSettings, 'skeleton') === 'deepseek-v4-pro')
 const dk = (await aiDecomposeNode(td.root!, sd.title)).children
 check('演示分解出的叶子通过 nodeIsAtomic 硬判定', dk.every((k) => nodeIsAtomic(k)), 'first: ' + dk[0]?.name)
 

@@ -9,8 +9,8 @@ export function isDemoMode(settings: { apiKey: string }): boolean {
   return !settings.apiKey
 }
 
-/** 解析某个模块实际生效的模型：模块覆盖 > 全局默认 */
-function moduleModel(settings: Settings, module: AiModule): string {
+/** 解析某个模块实际生效的模型：模块覆盖 > 全局默认（导出供测试验证） */
+export function moduleModel(settings: Settings, module: AiModule): string {
   return (settings.models?.[module] ?? '').trim() || settings.model || 'deepseek-chat'
 }
 
@@ -349,7 +349,8 @@ export async function aiGenerateTree(
           skeletonAttempts: attempt,
           decompositionCalls: 0,
           stopReason: 'skeleton_only',
-          complete: true
+          complete: true,
+          modelsUsed: { skeleton: model }
         }
       }
     } catch (e) {
@@ -786,7 +787,14 @@ export async function aiBuildDeepTree(
       : auto.report.maxNodesExceeded
         ? 'max_nodes_exceeded'
         : 'budget_exceeded',
-    complete: auto.report.frontierExhausted
+    complete: auto.report.frontierExhausted,
+    modelsUsed: {
+      skeleton: moduleModel(settings, 'skeleton'),
+      decompose: moduleModel(settings, 'decompose'),
+      checklist: moduleModel(settings, 'checklist'),
+      chat: moduleModel(settings, 'chat'),
+      lightEdge: moduleModel(settings, 'lightEdge')
+    }
   }
   if (auto.report.failures > 0) {
     result.note = (result.note ? result.note + '；' : '') + '⚠️ 有 ' + auto.report.failures + ' 个叶子分解失败（AI 返回无法解析）'

@@ -219,12 +219,22 @@ export default function TreeView({ lineId }: { lineId: string }) {
               '生成溯源：' +
               (line.generation.source === 'demo'
                 ? '演示模式，未调用 AI'
-                : 'AI 生成 · 模型 ' + line.generation.model + ' · 骨架尝试 ' + line.generation.skeletonAttempts + ' 次 · 分解调用 ' + line.generation.decompositionCalls + ' 次 · 停止原因 ' + line.generation.stopReason)
+                : [
+                    'AI 生成',
+                    '骨架模型：' + (line.generation.modelsUsed?.skeleton ?? line.generation.model),
+                    '分解模型：' + (line.generation.modelsUsed?.decompose ?? line.generation.model),
+                    '诊断清单模型：' + (line.generation.modelsUsed?.checklist ?? line.generation.model),
+                    '摸底聊天模型：' + (line.generation.modelsUsed?.chat ?? line.generation.model),
+                    '边点亮模型：' + (line.generation.modelsUsed?.lightEdge ?? line.generation.model),
+                    '骨架尝试 ' + line.generation.skeletonAttempts + ' 次',
+                    '分解调用 ' + line.generation.decompositionCalls + ' 次',
+                    '停止原因 ' + line.generation.stopReason
+                  ].join(' · '))
             }
           >
             {line.generation.source === 'demo'
               ? '🧪 DEMO · 未调用 AI'
-              : '🤖 AI · ' + line.generation.model + ' · 分解 ' + line.generation.decompositionCalls + ' 次 · ' + (line.generation.complete ? '拆到底' : '未拆完')}
+              : '🤖 AI · 骨架 ' + (line.generation.modelsUsed?.skeleton ?? line.generation.model) + ' · 分解 ' + (line.generation.modelsUsed?.decompose ?? line.generation.model) + ' ×' + line.generation.decompositionCalls + ' · ' + (line.generation.complete ? '拆到底' : '未拆完')}
           </span>
         )}
         {stats && (
