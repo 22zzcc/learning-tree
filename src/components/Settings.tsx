@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, saveSettings, exportAllData, getSettings } from '../db'
 import { useAppStore } from '../store/appStore'
 import { deepseekChat } from '../lib/deepseek'
+import { moduleModel } from '../lib/ai'
 import { AI_MODULE_LABELS, type AiModule } from '../types'
 
 export default function Settings() {
@@ -30,18 +31,46 @@ export default function Settings() {
     toast('「' + AI_MODULE_LABELS[mod] + '」的模型已更新', 'success')
   }
 
+  /** 测试连接：测的是「骨架生成」实际使用的模型（moduleModel 解析），与真实生成路径一致 */
   async function testConnection() {
     setTesting(true)
     try {
       const cur = await getSettings()
+      const model = moduleModel(cur, 'skeleton')
       const answer = await deepseekChat(
         cur,
         [{ role: 'user', content: '请回复四个字：连接成功' }],
-        { temperature: 0 }
+        { temperature: 0, model, maxTokens: 20 }
       )
-      toast('测试成功，AI 回复：' + answer.slice(0, 40), 'success')
+      toast('骨架模型（' + model + '）连接成功，AI 回复：' + answer.slice(0, 40), 'success')
     } catch (e) {
-      toast('连接失败：' + (e as Error).message, 'error')
+      toast('骨架模型连接失败：' + (e as Error).message, 'error')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  /** 测试全部 5 个模块各自解析出的模型 */
+  async function testAllModels() {
+    setTesting(true)
+    try {
+      const cur = await getSettings()
+      const mods: AiModule[] = ['chat', 'checklist', 'skeleton', 'decompose', 'lightEdge']
+      const results = await Promise.all(
+        mods.map(async (m) => {
+          const model = moduleModel(cur, m)
+          try {
+            await deepseekChat(cur, [{ role: 'user', content: '回复：ok' }], { temperature: 0, model, maxTokens: 10 })
+            return m + '（' + model + '）✅'
+          } catch (e) {
+            return m + '（' + model + '）❌ ' + (e as Error).message.slice(0, 50)
+          }
+        })
+      )
+      const ok = results.every((r) => r.includes('✅'))
+      toast('各模块模型测试：' + results.join('｜'), ok ? 'success' : 'error')
+    } catch (e) {
+      toast('测试失败：' + (e as Error).message, 'error')
     } finally {
       setTesting(false)
     }
@@ -157,9 +186,12 @@ export default function Settings() {
             自动深度分解关闭思考模式（拆分既有知识不需要长思考，速度提升 5~10 倍，推荐；拆解质量要求极高时可关闭此开关）
           </label>
         </div>
-        <div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="btn" onClick={testConnection} disabled={testing || !s.apiKey}>
-            {testing ? '测试中…' : '测试连接'}
+            {testing ? '测试中…' : '测试连接（骨架模型）'}
+          </button>
+          <button className="btn" onClick={testAllModels} disabled={testing || !s.apiKey}>
+            {testing ? '测试中…' : '测试全部 5 个模块的模型'}
           </button>
         </div>
       </div>

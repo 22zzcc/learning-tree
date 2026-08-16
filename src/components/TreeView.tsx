@@ -27,6 +27,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
   const [tick, setTick] = useState(0)
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildPct, setRebuildPct] = useState(0)
+  const [rebuildMsg, setRebuildMsg] = useState('')
   const selectedId = useAppStore((s) => s.selectedNodeId)
   const focusId = useAppStore((s) => s.focusNodeId)
   const selectNode = useAppStore((s) => s.selectNode)
@@ -167,7 +168,10 @@ export default function TreeView({ lineId }: { lineId: string }) {
       })
       const result = await aiBuildDeepTree(line, session, {
         rebuildDemo: true,
-        onProgress: (percent) => setRebuildPct(percent)
+        onProgress: (percent, msg) => {
+          setRebuildPct(percent)
+          setRebuildMsg(msg)
+        }
       })
       const newNodes = result.nodes
       // 回填旧状态（按名称匹配）
@@ -194,6 +198,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
     } finally {
       setRebuilding(false)
       setRebuildPct(0)
+      setRebuildMsg('')
     }
   }
 
@@ -259,6 +264,12 @@ export default function TreeView({ lineId }: { lineId: string }) {
           导出 PNG 图片
         </button>
       </div>
+
+      {rebuilding && (
+        <div className="rebuild-status">
+          🔄 重新构建 {rebuildPct}% · {rebuildMsg || '进行中…'}
+        </div>
+      )}
 
       {focusedNode && (
         <div className="focus-bar">

@@ -268,7 +268,7 @@ function validateSkeleton(data: { root: GenNode; nodes: GenNode[] }): void {
 export async function aiGenerateTree(
   line: LearningLine,
   session: OnboardingSession,
-  opts: { rebuildDemo?: boolean } = {}
+  opts: { rebuildDemo?: boolean; onProgress?: (percent: number, msg: string) => void } = {}
 ): Promise<GenerateTreeResult> {
   const settings = await getSettings()
   if (isDemoMode(settings)) {
@@ -323,23 +323,41 @@ export async function aiGenerateTree(
 
   let lastErr: Error | null = null
   let rawSnippet = ''
+  let skeletonMs = 0
+  const t0 = Date.now()
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const answer = await deepseekChat(
-      settings,
-      [{ role: 'system', content: treeSystemPrompt(settings.depth) }, { role: 'user', content: userContent }],
-      {
-        json: true,
-        temperature: 0.5,
-        maxTokens: settings.depth === 'deep' ? 8192 : 8192,
-        model,
-        thinking: settings.skeletonNoThinking ? 'disabled' : undefined
-      }
-    )
+    // 阶段 1：请求发出，等待响应（期间每 2 秒回报已等待秒数）
+    opts.onProgress?.(5, '正在请求骨架模型（' + model + '）…')
+    const ticker = setInterval(() => {
+      opts.onProgress?.(5, '正在等待骨架模型（' + model + '）响应…已等待 ' + Math.round((Date.now() - t0) / 1000) + ' 秒')
+    }, 2000)
+    let answer: string
+    try {
+      answer = await deepseekChat(
+        settings,
+        [{ role: 'system', content: treeSystemPrompt(settings.depth) }, { role: 'user', content: userContent }],
+        {
+          json: true,
+          temperature: 0.5,
+          maxTokens: 8192,
+          model,
+          thinking: settings.skeletonNoThinking ? 'disabled' : undefined
+        }
+      )
+    } finally {
+      clearInterval(ticker)
+    }
+    // 阶段 2：收到响应
+    opts.onProgress?.(10, '已收到响应（累计 ' + ((Date.now() - t0) / 1000).toFixed(1) + 's），正在解析 JSON…')
     rawSnippet = answer.slice(0, 800)
     try {
       const data = extractJson<{ root: GenNode; nodes: GenNode[] }>(answer)
+      // 阶段 3：结构校验
+      opts.onProgress?.(15, 'JSON 解析成功，正在校验能力图谱结构…')
       validateSkeleton(data)
+      skeletonMs = Date.now() - t0
       const all: GenNode[] = [data.root, ...data.nodes.slice(0, 200)]
+      opts.onProgress?.(20, '骨架完成：' + (1 + all.length) + ' 个初始能力（用时 ' + (skeletonMs / 1000).toFixed(1) + 's）')
       return {
         nodes: genNodesToTree(all, line.id),
         meta: {
@@ -350,12 +368,16 @@ export async function aiGenerateTree(
           decompositionCalls: 0,
           stopReason: 'skeleton_only',
           complete: true,
+          skeletonMs,
           modelsUsed: { skeleton: model }
         }
       }
     } catch (e) {
       lastErr = e as Error
       console.error('[skeleton] 第 ' + attempt + ' 次解析/校验失败', e, '原始返回片段：', rawSnippet)
+      if (attempt === 1) {
+        opts.onProgress?.(10, '第 1 次骨架校验失败（' + (e as Error).message.slice(0, 60) + '），正在重试 2/2…')
+      }
     }
   }
   throw new Error(
@@ -755,14 +777,17 @@ export async function aiBuildDeepTree(
   session: OnboardingSession,
   opts: { rebuildDemo?: boolean; onProgress?: (percent: number, msg: string) => void } = {}
 ): Promise<GenerateTreeResult> {
-  opts.onProgress?.(5, '正在生成能力图谱骨架…')
-  const result = await aiGenerateTree(line, session, { rebuildDemo: opts.rebuildDemo })
+  opts.onProgress?.(3, '准备生成能力图谱…')
+  const result = await aiGenerateTree(line, session, {
+    rebuildDemo: opts.rebuildDemo,
+    onProgress: (p, m) => opts.onProgress?.(p, m)
+  })
   const settings = await getSettings()
   if (isDemoMode(settings) || settings.depth !== 'deep') {
     opts.onProgress?.(100, '完成')
     return result
   }
-  opts.onProgress?.(20, '骨架完成，开始自动深度分解…')
+  opts.onProgress?.(20, '骨架完成，开始自动深度分解（真实进度 = 已检查叶子 / 预算）…')
   const before = result.nodes.length
   const budget = 120
   if (!settings.decomposeNoThinking) {

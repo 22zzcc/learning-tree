@@ -14,6 +14,8 @@ export interface GenerationMeta {
   decompositionCalls: number
   stopReason: 'frontier_exhausted' | 'budget_exceeded' | 'max_nodes_exceeded' | 'skeleton_only' | 'demo_mode'
   complete: boolean
+  /** 骨架请求总耗时（毫秒） */
+  skeletonMs?: number
   /** 本次生成中每个模块实际调用的模型（用于验证「各模块独立调用」是否生效） */
   modelsUsed?: Partial<Record<AiModule, string>>
 }
