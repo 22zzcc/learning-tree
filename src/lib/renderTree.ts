@@ -3,7 +3,7 @@
 
 import * as d3 from 'd3'
 import type { TreeNode } from '../types'
-import { STATE_COLOR, STATE_BG, STATE_LABEL } from '../types'
+import { STATE_COLOR, STATE_BG, STATE_LABEL, STATE_MASTERY } from '../types'
 
 export const ROOT_W = 64           // 根（书名）：竖向卡片
 export const ROOT_H = 84
@@ -310,6 +310,16 @@ export function renderTree(opts: RenderTreeOpts): void {
       .attr('cx', 0)
       .attr('cy', h / 2 - 14)
       .attr('r', 5)
+      .attr('fill', STATE_COLOR[d.data.state])
+    // 掌握度进度条（卡片底部细条）
+    const m = d.data.mastery ?? STATE_MASTERY[d.data.state]
+    el.append('rect')
+      .attr('class', 'mastery-bar')
+      .attr('x', -w / 2 + 4)
+      .attr('y', h / 2 - 2.5)
+      .attr('width', Math.max(0, ((w - 8) * m) / 100))
+      .attr('height', 2.5)
+      .attr('rx', 1.25)
       .attr('fill', STATE_COLOR[d.data.state])
   }
 }

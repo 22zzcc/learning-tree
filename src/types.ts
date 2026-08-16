@@ -25,8 +25,16 @@ export interface TreeNode {
   whyImportant: string
   /** 通俗原理：这个知识点为什么成立 / 为什么这样设计（可选） */
   principle?: string
-  /** 新手最常见的易错点（可选） */
+  /** 新手最常见的易错点（可选，已停止生成） */
   pitfalls?: string[]
+  /** 预计学习时长（分钟）；原子单元 ≤ 90 */
+  minutes?: number
+  /** 独立测试 / 掌握标准：通过什么能证明学会了 */
+  test?: string
+  /** 最小实践任务 */
+  practice?: string
+  /** 掌握度 0~100（可选；缺省时按 state 推导） */
+  mastery?: number
   state: NodeState
   // 从父节点到本节点的「边」：为什么关联 + 相似例子（按需点亮）
   edgeWhy: string | null
@@ -98,4 +106,20 @@ export const STATE_BG: Record<NodeState, string> = {
   learning: '#fff9ef',
   mastered: '#eef8f2',
   fuzzy: '#fdf9ec'
+}
+
+/** 四档状态对应的默认掌握度（百分比） */
+export const STATE_MASTERY: Record<NodeState, number> = {
+  unlearned: 0,
+  learning: 45,
+  mastered: 90,
+  fuzzy: 25
+}
+
+/** 由掌握度百分比推导状态档位 */
+export function stateFromMastery(m: number): NodeState {
+  if (m >= 85) return 'mastered'
+  if (m >= 30) return 'learning'
+  if (m >= 5) return 'fuzzy'
+  return 'unlearned'
 }

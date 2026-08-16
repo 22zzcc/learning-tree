@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { db } from '../db'
 import type { TreeNode } from '../types'
-import { STATE_LABEL, STATE_COLOR } from '../types'
+import { STATE_LABEL, STATE_COLOR, STATE_MASTERY, stateFromMastery } from '../types'
 import { aiLightEdge, aiDecomposeNode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
@@ -23,11 +23,17 @@ export default function NodePanel({
   const toast = useAppStore((s) => s.toast)
   const [lighting, setLighting] = useState(false)
   const [decomposing, setDecomposing] = useState(false)
+  const mastery = node.mastery ?? STATE_MASTERY[node.state]
 
   async function setState(state: TreeNode['state']) {
     if (state === node.state) return
-    await db.nodes.update(node.id, { state, updatedAt: Date.now() })
+    await db.nodes.update(node.id, { state, mastery: STATE_MASTERY[state], updatedAt: Date.now() })
     toast('状态已更新：' + STATE_LABEL[state], 'success')
+  }
+
+  async function setMastery(value: number) {
+    const state = stateFromMastery(value)
+    await db.nodes.update(node.id, { mastery: value, state, updatedAt: Date.now() })
   }
 
   async function lightEdge() {
@@ -54,10 +60,10 @@ export default function NodePanel({
     try {
       const res = await aiDecomposeNode(node, lineTitle)
       if (res.done) {
-        toast('「' + node.name + '」已经是足够细小的知识单元：' + (res.reason ?? '无需再分解'), 'info')
+        toast('「' + node.name + '」已经是原子学习单元：' + (res.reason ?? '无需再分解'), 'info')
       } else {
         await db.nodes.bulkAdd(res.children)
-        toast('已分解出 ' + res.children.length + ' 个更细小的知识领域！', 'success')
+        toast('已分解出 ' + res.children.length + ' 个更细小的原子能力！', 'success')
       }
     } catch (e) {
       toast('分解失败：' + (e as Error).message, 'error')
@@ -69,18 +75,31 @@ export default function NodePanel({
   return (
     <aside className="node-panel">
       <h2>{node.name}</h2>
-      <div className="state-pills">
-        {STATES.map((s) => (
-          <button
-            key={s}
-            className={'state-pill' + (node.state === s ? ' active' : '')}
-            style={node.state === s ? { background: STATE_COLOR[s], borderColor: STATE_COLOR[s] } : {}}
-            onClick={() => setState(s)}
-            title={'标记为' + STATE_LABEL[s]}
-          >
-            {STATE_LABEL[s]}
-          </button>
-        ))}
+
+      <div className="section">
+        <h4>📊 掌握度 {mastery}%</h4>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={mastery}
+          onChange={(e) => setMastery(Number(e.target.value))}
+          className="mastery-slider"
+        />
+        <div className="state-pills">
+          {STATES.map((s) => (
+            <button
+              key={s}
+              className={'state-pill' + (node.state === s ? ' active' : '')}
+              style={node.state === s ? { background: STATE_COLOR[s], borderColor: STATE_COLOR[s] } : {}}
+              onClick={() => setState(s)}
+              title={'标记为' + STATE_LABEL[s]}
+            >
+              {STATE_LABEL[s]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="section">
@@ -99,6 +118,27 @@ export default function NodePanel({
         <h4>🔍 例子</h4>
         <p>{node.example}</p>
       </div>
+
+      {node.minutes && (
+        <div className="section">
+          <h4>⏱️ 预计学习时长</h4>
+          <p>{node.minutes} 分钟{node.minutes <= 90 ? '（原子单元）' : ''}</p>
+        </div>
+      )}
+
+      {node.test && (
+        <div className="section">
+          <h4>✅ 掌握标准（独立测试）</h4>
+          <p>{node.test}</p>
+        </div>
+      )}
+
+      {node.practice && (
+        <div className="section">
+          <h4>🛠️ 最小实践任务</h4>
+          <p>{node.practice}</p>
+        </div>
+      )}
 
       <div className="section">
         <h4>💡 为什么重要</h4>
@@ -138,7 +178,7 @@ export default function NodePanel({
 
       <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <button className="btn btn-primary" onClick={decompose} disabled={decomposing}>
-          {decomposing ? 'AI 分解中…' : '🔬 继续分解此节点（不够细就再拆）'}
+          {decomposing ? 'AI 分解中…' : '🔬 继续分解此节点（不够原子就再拆）'}
         </button>
         <button className="btn" onClick={onFocus}>🔍 聚焦此节点（只看这棵子树）</button>
         <button className="btn btn-danger" onClick={onDeleteBranch}>🗑 删除此分支</button>

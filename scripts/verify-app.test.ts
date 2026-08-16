@@ -7,7 +7,7 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, nodeNameIsAtomic } from '../src/lib/ai'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -87,6 +87,7 @@ check('有子节点的节点带折叠按钮（6 个）', toggles.length === 6, '
 check('所有边路径非空', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('d') ?? '').length > 10))
 check('连线为弧线（贝塞尔曲线）', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('d') ?? '').includes('C')))
 check('所有连线为虚线', [...svgEl.querySelectorAll('path.link')].every((p) => (p.getAttribute('stroke-dasharray') ?? '') !== ''))
+check('每个节点带掌握度进度条', svgEl.querySelectorAll('rect.mastery-bar').length === 16, 'got ' + svgEl.querySelectorAll('rect.mastery-bar').length)
 
 // 分组布局：大类之间距离 > 同一大类内部同级距离
 const getX = (el: Element): number => {
@@ -202,15 +203,21 @@ const sdRoot = sdNodes.find((n) => n.parentId === null)!
 check('短除法根节点带原理字段', (sdRoot.principle ?? '').length > 10, sdRoot.principle)
 const specDepth = (s: any): number => 1 + Math.max(0, ...((s.children ?? []) as any[]).map((c) => specDepth(c)))
 const tpl = demoTreeSpec('测试目标', '测试原因')
-check('演示模板深度 ≥ 4 层', specDepth(tpl) >= 4, 'got ' + specDepth(tpl))
+check('演示模板深度 ≥ 3 层（叶子即原子单元）', specDepth(tpl) >= 3, 'got ' + specDepth(tpl))
 check('演示模板不含误区分支', !JSON.stringify(tpl).includes('误区'))
+check('演示模板为能力句式（无课程目录标签）', !JSON.stringify(tpl).includes('基本概念') && !JSON.stringify(tpl).includes('标准流程'))
 check('演示数据不含易错点', allNodes.every((n) => !n.pitfalls || n.pitfalls.length === 0))
+
+// 原子性硬判定
+check('名称含「与」判定为非原子', nodeNameIsAtomic('能实现 Q 与 K 投影') === false)
+check('单一能力名称判定为原子', nodeNameIsAtomic('能实现 softmax') === true)
 
 // ---- 8. 继续分解（分支不设上限） ----
 const decomposeRes = await aiDecomposeNode(td.root!, sd.title)
 const kids = decomposeRes.children
 check('演示模式分解出 ≥2 个子节点且父节点正确', !decomposeRes.done && kids.length >= 2 && kids.every((k) => k.parentId === td.root!.id), 'got ' + kids.length)
 check('分解出的子节点都带原理', kids.every((k) => (k.principle ?? '').length > 0))
+check('分解出的子节点带原子字段（分钟/测试/实践）', kids.every((k) => (k.minutes ?? 0) <= 90 && !!k.test && !!k.practice))
 await db.nodes.bulkAdd(kids)
 
 // ---- 8.5 自动深度分解 ----

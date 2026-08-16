@@ -305,7 +305,9 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 
 .node-panel h2 { margin: 0; font-size: 17px; line-height: 1.4; }
 
-.state-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.mastery-slider { width: 100%; accent-color: var(--accent); margin: 2px 0 6px; }
+
+.state-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .state-pill {
   border: 1px solid var(--border);
   background: #fff;

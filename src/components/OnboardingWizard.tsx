@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, uid, getSettings } from '../db'
-import type { LearningLine, OnboardingSession, LineCategory } from '../types'
-import { aiChatQuestion, aiBuildChecklist, aiBuildDeepTree, isDemoMode } from '../lib/ai'
+import type { LearningLine, OnboardingSession, TreeNode, LineCategory } from '../types'
+import { aiChatQuestion, aiBuildDeepTree, aiBuildChecklistFromTree, isDemoMode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
 const CATEGORY_OPTIONS: { key: LineCategory; icon: string; label: string; hint: string }[] = [
@@ -14,6 +14,7 @@ const CATEGORY_OPTIONS: { key: LineCategory; icon: string; label: string; hint: 
 export default function OnboardingWizard({ initialCategory, onClose }: { initialCategory: LineCategory; onClose: () => void }) {
   const [line, setLine] = useState<LearningLine | null>(null)
   const [session, setSession] = useState<OnboardingSession | null>(null)
+  const [pendingNodes, setPendingNodes] = useState<TreeNode[] | null>(null)
   const [category, setCategory] = useState<LineCategory>(initialCategory)
   const [title, setTitle] = useState('')
   const [reason, setReason] = useState('')
@@ -88,16 +89,34 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
     setBusy(false)
   }
 
-  async function buildChecklist() {
+  /** 生成能力图谱（先建规范图谱，再诊断，最后裁剪出个性化树） */
+  async function generateGraph(skipDiagnostic = false) {
     if (!line || !session || busy) return
     setBusy(true)
+    setGenMsg('AI 正在生成能力图谱（骨架 + 自动深度分解）…')
     try {
-      const items = await aiBuildChecklist(line, session)
-      const updated: OnboardingSession = { ...session, checklist: items, stage: 'checklist' }
+      const finalSession: OnboardingSession = { ...session, stage: 'generating' }
+      const result = await aiBuildDeepTree(line, finalSession, {
+        onProgress: (percent, msg) => setGenMsg(msg + '（' + percent + '%）')
+      })
+      if (result.note) toast(result.note, 'info')
+      if (skipDiagnostic) {
+        await db.nodes.bulkAdd(result.nodes)
+        await db.onboarding.put({ ...finalSession, stage: 'done' })
+        toast('能力图谱已生成：' + result.nodes.length + ' 个能力节点', 'success')
+        onClose()
+        openLine(line.id)
+        return
+      }
+      setPendingNodes(result.nodes)
+      const items = await aiBuildChecklistFromTree(line, finalSession, result.nodes)
+      const updated: OnboardingSession = { ...finalSession, checklist: items, stage: 'checklist' }
       await db.onboarding.put(updated)
       setSession(updated)
+      setGenMsg('')
     } catch (e) {
-      toast('生成清单失败：' + (e as Error).message, 'error')
+      toast('生成失败：' + (e as Error).message, 'error')
+      setGenMsg('')
     } finally {
       setBusy(false)
     }
@@ -113,24 +132,31 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
     setSession(updated)
   }
 
-  async function generateTree(skipChecklist = false) {
-    if (!line || !session || busy) return
+  /** 应用诊断结果：把已掌握/模糊的能力标记到图谱上，生成个性化树 */
+  async function applyDiagnostic() {
+    if (!line || !session || !pendingNodes || busy) return
     setBusy(true)
-    setGenMsg('AI 正在生成你的知识树骨架（标准模式约 10~30 秒，深度模式约 1~3 分钟）…')
+    setGenMsg('正在应用诊断结果，裁剪出你的个性化能力图谱…')
     try {
-      const finalSession = skipChecklist ? { ...session, checklist: [], stage: 'generating' as const } : { ...session, stage: 'generating' as const }
-      const result = await aiBuildDeepTree(line, finalSession, {
-        onProgress: (percent, msg) => setGenMsg(msg + '（' + percent + '%）')
+      const known = session.checklist.filter((c) => c.state === 'known').map((c) => c.name)
+      const fuzzy = session.checklist.filter((c) => c.state === 'fuzzy').map((c) => c.name)
+      pendingNodes.forEach((n) => {
+        const match = (k: string) => n.name.includes(k.replace(/[「」]/g, '')) || k.includes(n.name)
+        if (known.some(match)) {
+          n.state = 'mastered'
+          n.mastery = 90
+        } else if (fuzzy.some(match)) {
+          n.state = 'fuzzy'
+          n.mastery = 25
+        }
       })
-      if (result.note) toast(result.note, 'info')
-      await db.nodes.bulkAdd(result.nodes)
-      await db.onboarding.put({ ...finalSession, stage: 'done' })
-      toast('知识树生成完成！共 ' + result.nodes.length + ' 个概念节点', 'success')
+      await db.nodes.bulkAdd(pendingNodes)
+      await db.onboarding.put({ ...session, stage: 'done' })
+      toast('你的个性化能力图谱已生成！已掌握的能力已剪枝为绿色', 'success')
       onClose()
       openLine(line.id)
     } catch (e) {
-      toast('生成失败：' + (e as Error).message, 'error')
-      setGenMsg('')
+      toast('保存失败：' + (e as Error).message, 'error')
     } finally {
       setBusy(false)
     }
@@ -150,14 +176,14 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
         <div className="wizard-body">
           {demo && (
             <div className="demo-banner">
-              <b>演示模式：</b>未配置 API Key，摸底问题与知识树使用内置模板。在「设置」页填入 DeepSeek Key 后即可体验真正的 AI。
+              <b>演示模式：</b>未配置 API Key，能力图谱使用内置模板。在「设置」页填入 Key 后即可获得真实的 AI 能力建模。
             </div>
           )}
 
           {stage === 'intro' && (
             <>
               <p className="muted" style={{ margin: 0 }}>
-                先选择这条学习线属于哪个轨道，再告诉 AI 你想学什么。接下来它会通过 3 轮问答摸底你的基础，再生成从你的「最近发展区」开始生长的知识树。
+                先选择这条学习线属于哪个轨道，再告诉 AI 你想获得什么能力。流程：<b>摸底对话 → 生成规范能力图谱 → 基于图谱诊断 → 裁剪出你的个性化树</b>。
               </p>
               <div className="cat-picker">
                 {CATEGORY_OPTIONS.map((c) => (
@@ -188,7 +214,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
                 <label>💭 为什么想学（可选，帮助 AI 定制路线）</label>
                 <textarea
                   rows={2}
-                  placeholder="例如：孩子正在学分数约分，我想先自己弄明白再教他"
+                  placeholder="例如：孩子正在学分数约分，我想自己先弄明白再教他"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
@@ -202,7 +228,7 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
           {stage === 'chat' && (
             <>
               <p className="muted small" style={{ margin: 0 }}>
-                摸底对话（{Math.min(session!.round + 1, 3)}/3 轮）——如实回答即可，你的「已掌握」清单会随学习不断更新，现在只是第一版快照。
+                摸底对话（{Math.min(session!.round + 1, 3)}/3 轮）——如实回答即可，你的「已掌握」档案会随学习不断更新，现在只是第一版快照。
               </p>
               <div className="chat-log" ref={logRef} style={{ maxHeight: 320, overflowY: 'auto' }}>
                 {session!.messages.map((m) => (
@@ -224,19 +250,26 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" onClick={buildChecklist} disabled={busy}>
-                    {busy ? '生成中…' : '生成自评清单 →'}
+                  <button className="btn btn-primary" onClick={() => generateGraph(false)} disabled={busy}>
+                    {busy ? '生成中…' : '生成能力图谱 →'}
                   </button>
-                  <button className="btn" onClick={() => generateTree(true)} disabled={busy}>跳过清单，直接生成知识树</button>
+                  <button className="btn" onClick={() => generateGraph(true)} disabled={busy}>跳过诊断，直接使用图谱</button>
                 </div>
               )}
             </>
           )}
 
-          {stage === 'checklist' && (
+          {stage === 'generating' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '30px 0' }}>
+              <div className="spinner" />
+              <p className="muted">{genMsg || '正在生成…'}</p>
+            </div>
+          )}
+
+          {stage === 'checklist' && pendingNodes && (
             <>
               <p className="muted" style={{ margin: 0 }}>
-                下面是与「{line?.title}」相关的前置知识点。勾选你<b>已经会的</b>（绿色剪枝）、<b>模糊的</b>（黄色复习）和<b>不会的</b>（正常学习），AI 将据此定制树。
+                能力图谱已生成（{pendingNodes.length} 个能力节点）。下面是 AI 从中挑出的<b>关键前置能力</b>，勾选<b>已经会的</b>（绿色剪枝）、<b>模糊的</b>（黄色复习）、<b>不会的</b>（正常学习）。
               </p>
               {session!.checklist.map((c) => (
                 <div key={c.id} className="checklist-item">
@@ -248,17 +281,10 @@ export default function OnboardingWizard({ initialCategory, onClose }: { initial
                   </div>
                 </div>
               ))}
-              <button className="btn btn-primary" onClick={() => generateTree(false)} disabled={busy}>
-                {busy ? '生成中…' : '生成知识树（已标记 ' + knownCount + ' 项已掌握）'}
+              <button className="btn btn-primary" onClick={applyDiagnostic} disabled={busy}>
+                {busy ? '应用中…' : '应用诊断，生成我的个性化能力图谱（已标记 ' + knownCount + ' 项已掌握）'}
               </button>
             </>
-          )}
-
-          {stage === 'generating' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '30px 0' }}>
-              <div className="spinner" />
-              <p className="muted">{genMsg}</p>
-            </div>
           )}
         </div>
       </div>
