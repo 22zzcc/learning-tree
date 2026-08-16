@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from './db'
+import type { LineCategory } from './types'
 import { useAppStore, type Tab } from './store/appStore'
 import Home from './components/Home'
 import TreeView from './components/TreeView'
@@ -35,6 +36,7 @@ export default function App() {
   const toasts = useAppStore((s) => s.toasts)
   const dismissToast = useAppStore((s) => s.dismissToast)
   const [showWizard, setShowWizard] = useState(false)
+  const [wizardCategory, setWizardCategory] = useState<LineCategory>('expert')
   const lines = useLiveQuery(() => db.lines.toArray(), [])
   const booted = useRef(false)
 
@@ -66,12 +68,19 @@ export default function App() {
         </nav>
       </header>
       <main className={'main' + (tab === 'tree' ? ' main-tree' : '')}>
-        {tab === 'home' && <Home onNewLine={() => setShowWizard(true)} />}
+        {tab === 'home' && (
+          <Home
+            onNewLine={(cat) => {
+              setWizardCategory(cat)
+              setShowWizard(true)
+            }}
+          />
+        )}
         {tab === 'tree' && (activeLineId ? <TreeView lineId={activeLineId} /> : <EmptyTreePrompt />)}
         {tab === 'profile' && <Profile />}
         {tab === 'settings' && <Settings />}
       </main>
-      {showWizard && <OnboardingWizard onClose={() => setShowWizard(false)} />}
+      {showWizard && <OnboardingWizard initialCategory={wizardCategory} onClose={() => setShowWizard(false)} />}
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={'toast toast-' + t.kind} onClick={() => dismissToast(t.id)} title="点击关闭">

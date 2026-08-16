@@ -7,7 +7,7 @@
 import { db, uid, getSettings, saveSettings } from '../db'
 import type { LearningLine, TreeNode, NodeState, ChecklistItem } from '../types'
 
-export const DEMO_VERSION = 1
+export const DEMO_VERSION = 2
 
 export interface DemoNodeSpec {
   name: string
@@ -574,21 +574,24 @@ function flattenSpec(
   return { node, children: spec.children ?? [] }
 }
 
-const DEMO_LINES: { title: string; reason: string; spec: DemoNodeSpec }[] = [
-  {
-    title: '掌握短除法',
-    reason: '孩子正在学分数约分，我想自己先弄明白短除法再教他。',
-    spec: shortDivision
-  },
+const DEMO_LINES: { title: string; reason: string; spec: DemoNodeSpec; category: 'expert' | 'hobby' | 'career' }[] = [
   {
     title: '看懂基础经济新闻',
     reason: '看财经新闻总是一知半解，想建立基础的宏观经济常识。',
-    spec: economics
+    spec: economics,
+    category: 'expert'
   },
   {
     title: '自由泳入门',
     reason: '夏天想去游泳，从零学会自由泳。',
-    spec: swimming
+    spec: swimming,
+    category: 'hobby'
+  },
+  {
+    title: '掌握短除法',
+    reason: '孩子正在学分数约分，我想自己先弄明白短除法再教他。',
+    spec: shortDivision,
+    category: 'career'
   }
 ]
 
@@ -597,6 +600,7 @@ async function seedDemoData(): Promise<void> {
     id: uid(),
     title: d.title,
     reason: d.reason,
+    category: d.category,
     createdAt: Date.now() - 86400000 * (i === 0 ? 0 : i === 1 ? 12 : 30),
     status: 'active'
   }))

@@ -42,6 +42,11 @@ const noop = () => {}
 await ensureDemoSeed()
 const lines = await db.lines.toArray()
 check('播种 3 条演示学习线', lines.length === 3, 'got ' + lines.length)
+check(
+  '三条演示线各占一个分类轨道',
+  lines.every((l) => !!l.category) && new Set(lines.map((l) => l.category)).size === 3,
+  JSON.stringify(lines.map((l) => l.category))
+)
 const allNodes = await db.nodes.toArray()
 check('播种 36 个演示节点（16+7+13）', allNodes.length === 36, 'got ' + allNodes.length)
 

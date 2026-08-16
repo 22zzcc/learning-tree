@@ -2,10 +2,15 @@
 
 export type NodeState = 'unlearned' | 'learning' | 'mastered' | 'fuzzy'
 
+/** 学习线分类 */
+export type LineCategory = 'expert' | 'hobby' | 'career'
+
 export interface LearningLine {
   id: string
   title: string        // 学习目标
   reason: string       // 为什么学（摸底时收集）
+  /** 分类：expert=六个月专家线 hobby=兴趣爱好线 career=专业所需技术栈线（老数据可能缺失，UI 兜底为 expert） */
+  category?: LineCategory
   createdAt: number
   status: 'active' | 'done'
 }

@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, uid, getSettings } from '../db'
-import type { LearningLine, OnboardingSession } from '../types'
+import type { LearningLine, OnboardingSession, LineCategory } from '../types'
 import { aiChatQuestion, aiBuildChecklist, aiGenerateTree, isDemoMode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
-export default function OnboardingWizard({ onClose }: { onClose: () => void }) {
+const CATEGORY_OPTIONS: { key: LineCategory; icon: string; label: string; hint: string }[] = [
+  { key: 'expert', icon: '🎯', label: '六个月专家技术学习线', hint: '用六个月成为某领域专家，深度优先、系统推进' },
+  { key: 'hobby', icon: '🎨', label: '兴趣爱好学习线', hint: '纯兴趣驱动，轻松学、随时学' },
+  { key: 'career', icon: '🛠️', label: '专业所需·技术栈学习线', hint: '鉴于你的专业，把必要技能纳入技术栈' }
+]
+
+export default function OnboardingWizard({ initialCategory, onClose }: { initialCategory: LineCategory; onClose: () => void }) {
   const [line, setLine] = useState<LearningLine | null>(null)
   const [session, setSession] = useState<OnboardingSession | null>(null)
+  const [category, setCategory] = useState<LineCategory>(initialCategory)
   const [title, setTitle] = useState('')
   const [reason, setReason] = useState('')
   const [input, setInput] = useState('')
@@ -31,7 +38,7 @@ export default function OnboardingWizard({ onClose }: { onClose: () => void }) {
     }
     setBusy(true)
     try {
-      const newLine: LearningLine = { id: uid(), title: t, reason: reason.trim(), createdAt: Date.now(), status: 'active' }
+      const newLine: LearningLine = { id: uid(), title: t, reason: reason.trim(), category, createdAt: Date.now(), status: 'active' }
       const sess: OnboardingSession = { id: uid(), lineId: newLine.id, stage: 'chat', messages: [], checklist: [], round: 0 }
       await db.transaction('rw', db.lines, db.onboarding, async () => {
         await db.lines.add(newLine)
@@ -147,8 +154,22 @@ export default function OnboardingWizard({ onClose }: { onClose: () => void }) {
           {stage === 'intro' && (
             <>
               <p className="muted" style={{ margin: 0 }}>
-                先告诉 AI 你想学什么。接下来它会通过 3 轮问答摸底你的基础，再生成从你的「最近发展区」开始生长的知识树。
+                先选择这条学习线属于哪个轨道，再告诉 AI 你想学什么。接下来它会通过 3 轮问答摸底你的基础，再生成从你的「最近发展区」开始生长的知识树。
               </p>
+              <div className="cat-picker">
+                {CATEGORY_OPTIONS.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    className={'cat-option' + (category === c.key ? ' active' : '')}
+                    onClick={() => setCategory(c.key)}
+                  >
+                    <span className="cat-icon">{c.icon}</span>
+                    <span className="cat-label">{c.label}</span>
+                    <span className="cat-hint">{c.hint}</span>
+                  </button>
+                ))}
+              </div>
               <div className="form-row">
                 <label>🎯 学习目标</label>
                 <input

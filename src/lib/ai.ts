@@ -1,7 +1,7 @@
 // ---------- AI 编排：有 API Key 走 DeepSeek，没有则走演示模板 ----------
 
 import { getSettings, uid } from '../db'
-import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth } from '../types'
+import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
 import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, type DemoNodeSpec } from './demo'
 
@@ -143,6 +143,7 @@ export async function aiGenerateTree(line: LearningLine, session: OnboardingSess
         role: 'user',
         content: [
           '学习目标：' + line.title,
+          '学习线定位：' + (CATEGORY_GUIDE[line.category ?? 'expert'] ?? CATEGORY_GUIDE.expert),
           '学习动机：' + (line.reason || '未说明'),
           '摸底对话：\n' + history,
           '前置概念自评：',
@@ -226,6 +227,14 @@ function specToNodes(spec: DemoNodeSpec, lineId: string): TreeNode[] {
     ;(item.spec.children ?? []).forEach((c) => queue.push({ spec: c, parentId: node.id }))
   }
   return result
+}
+
+// ---- 3.5 学习线分类引导 ----
+
+const CATEGORY_GUIDE: Record<LineCategory, string> = {
+  expert: '六个月专家线：目标是用半年时间成为该领域的专家，路线要系统、有深度、可执行，重点放在核心能力闭环上。',
+  hobby: '兴趣爱好线：目标是享受学习过程，内容要轻松有趣、贴近生活、压力小，随时可以捡起来学一点。',
+  career: '技术栈线：目标是补足专业所需的技能，强调与已有知识和工作场景的衔接，学了就要能用上。'
 }
 
 // ---- 4. 继续分解：把任意节点拆成更细小的知识领域 ----
