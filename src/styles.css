@@ -480,6 +480,18 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 .toast-success { background: var(--accent); }
 .toast-error { background: var(--danger); }
 
+.toast-achievement {
+  background: linear-gradient(135deg, #b8860b, #e6b422);
+  border: 1px solid #f5d97a;
+  font-weight: 600;
+  animation: rise 0.25s ease, sparkle 1.2s ease infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2); }
+  50% { box-shadow: 0 6px 26px rgba(230, 180, 34, 0.85); }
+}
+
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* 滚动条 */
@@ -645,3 +657,40 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 
 .plan-name { flex: 1; font-size: 14px; }
 .plan-meta { white-space: nowrap; }
+
+/* ---------- 激励横幅 ---------- */
+
+.incentive-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 0 18px;
+  padding: 14px 18px;
+}
+
+.incentive-bar.on-fire { border-color: #f0d9a8; background: linear-gradient(135deg, #fffdf5, #fdf3dd); }
+
+.incentive-streak { display: flex; align-items: center; gap: 12px; }
+.incentive-fire { font-size: 30px; }
+.incentive-streak-num { font-size: 16px; font-weight: 700; color: var(--ink); }
+
+.incentive-badges { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+
+.incentive-badge-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+.incentive-badge {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 16px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.incentive-badge.unlocked { border-color: #e6c35c; background: #fff8e6; box-shadow: 0 2px 6px rgba(230, 180, 34, 0.25); }
+.incentive-badge.locked { opacity: 0.5; font-size: 12px; }

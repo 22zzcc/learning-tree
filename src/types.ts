@@ -168,6 +168,27 @@ export function stateFromMastery(m: number): NodeState {
   return 'unlearned'
 }
 
+// ---------- 娱乐激励正反馈闭环 ----------
+
+/** 学习活动类型（用于打卡连续天数与成就解锁） */
+export type ActivityKind = 'node-mastered' | 'edge-lit' | 'feynman-done' | 'plan-generated'
+
+export interface ActivityEvent {
+  id: string
+  kind: ActivityKind
+  /** 所在学习线（可选） */
+  lineId?: string
+  /** 附加信息（如计划模式 extreme/minimal） */
+  detail?: string
+  at: number
+}
+
+/** 已解锁的成就 */
+export interface BadgeRecord {
+  id: string
+  unlockedAt: number
+}
+
 // ---------- 费曼学习法 3×30 ----------
 
 /** 费曼三阶段：理解 → 复述 → 举例应用 */

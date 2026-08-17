@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { LearningLine, TreeNode, ProfileEntry, Settings, OnboardingSession, FeynmanSession } from './types'
+import type { LearningLine, TreeNode, ProfileEntry, Settings, OnboardingSession, FeynmanSession, ActivityEvent, BadgeRecord } from './types'
 
 export class LearnTreeDB extends Dexie {
   lines!: Table<LearningLine, string>
@@ -8,6 +8,8 @@ export class LearnTreeDB extends Dexie {
   settings!: Table<Settings, string>
   onboarding!: Table<OnboardingSession, string>
   feynman!: Table<FeynmanSession, string>
+  activity!: Table<ActivityEvent, string>
+  badges!: Table<BadgeRecord, string>
 
   constructor() {
     super('xueshu-learning-tree')
@@ -26,6 +28,17 @@ export class LearnTreeDB extends Dexie {
       settings: 'id',
       onboarding: 'id, lineId',
       feynman: 'id, lineId, nodeId, status, updatedAt'
+    })
+    // v3：激励闭环——学习活动日志 + 成就
+    this.version(3).stores({
+      lines: 'id, createdAt',
+      nodes: 'id, lineId, parentId, state',
+      profile: 'id, source, addedAt',
+      settings: 'id',
+      onboarding: 'id, lineId',
+      feynman: 'id, lineId, nodeId, status, updatedAt',
+      activity: 'id, kind, lineId, at',
+      badges: 'id, unlockedAt'
     })
   }
 }
@@ -65,16 +78,18 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 }
 
 export async function exportAllData(): Promise<string> {
-  const [lines, nodes, profile, settings, onboarding, feynman] = await Promise.all([
+  const [lines, nodes, profile, settings, onboarding, feynman, activity, badges] = await Promise.all([
     db.lines.toArray(),
     db.nodes.toArray(),
     db.profile.toArray(),
     db.settings.toArray(),
     db.onboarding.toArray(),
-    db.feynman.toArray()
+    db.feynman.toArray(),
+    db.activity.toArray(),
+    db.badges.toArray()
   ])
   return JSON.stringify(
-    { version: 2, exportedAt: new Date().toISOString(), lines, nodes, profile, settings, onboarding, feynman },
+    { version: 3, exportedAt: new Date().toISOString(), lines, nodes, profile, settings, onboarding, feynman, activity, badges },
     null,
     2
   )

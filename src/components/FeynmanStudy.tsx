@@ -13,7 +13,12 @@ import {
   feynmanCompletionBoost
 } from '../lib/feynman'
 import { aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback } from '../lib/ai'
+import { recordActivity, type BadgeDefinition } from '../lib/achievements'
 import { useAppStore } from '../store/appStore'
+
+function toastUnlocks(toast: ReturnType<typeof useAppStore.getState>['toast'], unlocks: BadgeDefinition[]) {
+  unlocks.forEach((b) => toast('✨ 成就解锁：' + b.emoji + ' ' + b.name + ' —— ' + b.desc, 'achievement'))
+}
 
 const STAGE_ICON: Record<FeynmanStage, string> = {
   understand: '📖',
@@ -275,6 +280,8 @@ export default function FeynmanStudy({ lineId, nodeId, onClose }: { lineId: stri
         await db.feynman.update(session!.id, { status: 'done', avgScore: avg, updatedAt: Date.now() })
       })
       toast('🎉 费曼学习完成！平均分 ' + avg + '，掌握度 +' + boost + ' → ' + mastery + '%', 'success')
+      const { unlocks } = await recordActivity('feynman-done', lineId)
+      toastUnlocks(toast, unlocks)
     } catch (e) {
       toast('完成失败：' + (e as Error).message, 'error')
     } finally {

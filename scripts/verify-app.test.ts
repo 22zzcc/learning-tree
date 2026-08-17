@@ -10,6 +10,7 @@ import { renderTree } from '../src/lib/renderTree'
 import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback } from '../src/lib/ai'
 import { feynmanRemainingSeconds, feynmanStageSeconds, feynmanNextStage, feynmanSessionInit, feynmanAvgScore, feynmanCompletionBoost } from '../src/lib/feynman'
 import { buildDailyPlan, eligibleNodes, nodeMinutes } from '../src/lib/plan'
+import { BADGES, computeStreak, evaluateBadges, dayKey, recordActivity } from '../src/lib/achievements'
 import type { TreeNode, NodeState } from '../src/types'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
@@ -417,6 +418,64 @@ const planTiny = buildDailyPlan(planNodes, 1, 'minimal')
 check('预算装不下任何节点时仍保留最高优先级一项并提示超支', planTiny.items.length === 1 && planTiny.leftoverMinutes < 0 && planTiny.note.includes('挑战'), JSON.stringify(planTiny))
 const planDone = buildDailyPlan([mkNode('g', null, 'mastered', 5)], 30, 'minimal')
 check('全部掌握时计划为空并给出完成提示', planDone.items.length === 0 && planDone.note.includes('全部掌握'), planDone.note)
+
+// ---- 12. 娱乐激励正反馈闭环 ----
+
+// 12.1 日期键与连续天数
+check('日期键按本地时区生成', dayKey(new Date(2026, 0, 5, 12).getTime()) === '2026-01-05', dayKey(new Date(2026, 0, 5, 12).getTime()))
+const sdk = (i: number) => dayKey(new Date(2026, 0, 15 - i, 12).getTime())
+const todayKey = sdk(0)
+check('无活动时连续天数为 0', computeStreak(new Set(), todayKey) === 0)
+check('只有今天活动为 1 天', computeStreak(new Set([sdk(0)]), todayKey) === 1)
+check('连续 3 天计数正确', computeStreak(new Set([sdk(0), sdk(1), sdk(2)]), todayKey) === 3)
+check('中断后重新计数', computeStreak(new Set([sdk(0), sdk(2)]), todayKey) === 1)
+check('今天没学但昨天学过不断签', computeStreak(new Set([sdk(1), sdk(2)]), todayKey) === 2)
+check('两天没学归零', computeStreak(new Set([sdk(2)]), todayKey) === 0)
+
+// 12.2 成就判定阈值与去重
+const snap = (p: Partial<{ masteredCount: number; edgeLitCount: number; feynmanDoneCount: number; planExtremeCount: number; lineDoneCount: number; streak: number }> = {}) => ({
+  masteredCount: 0,
+  edgeLitCount: 0,
+  feynmanDoneCount: 0,
+  planExtremeCount: 0,
+  lineDoneCount: 0,
+  streak: 0,
+  ...p
+})
+check('成就阈值判定正确', (
+  evaluateBadges(snap({ masteredCount: 1 }), new Set()).join('|') === 'first-blood' &&
+  evaluateBadges(snap({ masteredCount: 10 }), new Set()).includes('node-10') &&
+  evaluateBadges(snap({ masteredCount: 30 }), new Set()).includes('node-30') &&
+  evaluateBadges(snap({ edgeLitCount: 1 }), new Set()).join('|') === 'edge-first' &&
+  evaluateBadges(snap({ feynmanDoneCount: 1 }), new Set()).join('|') === 'feynman-first' &&
+  evaluateBadges(snap({ feynmanDoneCount: 5 }), new Set()).includes('feynman-5') &&
+  evaluateBadges(snap({ streak: 3 }), new Set()).join('|') === 'streak-3' &&
+  evaluateBadges(snap({ streak: 7 }), new Set()).includes('streak-7') &&
+  evaluateBadges(snap({ planExtremeCount: 1 }), new Set()).join('|') === 'extreme-first' &&
+  evaluateBadges(snap({ lineDoneCount: 1 }), new Set()).join('|') === 'line-done'
+))
+check('已解锁成就不会重复判定', evaluateBadges(snap({ masteredCount: 10 }), new Set(['first-blood', 'node-10'])).length === 0)
+
+// 12.3 活动记录与解锁结算（真实数据库）
+await db.activity.clear()
+await db.badges.clear()
+const u1 = await recordActivity('node-mastered', sd.id)
+const u1Ids = u1.unlocks.map((b) => b.id).sort()
+check(
+  '首次记录活动解锁「初露锋芒」与「连点成线」',
+  u1Ids.join('|') === 'edge-first|first-blood',
+  u1Ids.join('|')
+)
+check('活动日志写入数据库', (await db.activity.count()) === 1)
+for (let i = 0; i < 4; i++) await recordActivity('feynman-done', sd.id)
+const u2 = await recordActivity('feynman-done', sd.id)
+check('第 5 次费曼解锁「费曼信徒」', u2.unlocks.map((b) => b.id).includes('feynman-5'), u2.unlocks.map((b) => b.id).join(','))
+const u3 = await recordActivity('plan-generated', sd.id, 'extreme')
+check('极限计划解锁「极限玩家」', u3.unlocks.map((b) => b.id).includes('extreme-first'))
+const u4 = await recordActivity('node-mastered', sd.id)
+check('重复活动不再解锁新成就', u4.unlocks.length === 0)
+check('共解锁 5 个成就', (await db.badges.count()) === 5, 'got ' + (await db.badges.count()))
+check('成就定义完整（10 个）', BADGES.length === 10)
 
 // ---- 汇总 ----
 console.log('')

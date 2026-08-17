@@ -5,7 +5,7 @@ export type Tab = 'home' | 'tree' | 'profile' | 'settings'
 export interface Toast {
   id: number
   text: string
-  kind: 'info' | 'error' | 'success'
+  kind: 'info' | 'error' | 'success' | 'achievement'
 }
 
 export interface FeynmanTarget {

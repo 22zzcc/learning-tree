@@ -4,9 +4,15 @@ import { db } from '../db'
 import type { TreeNode } from '../types'
 import { STATE_LABEL, STATE_COLOR, STATE_MASTERY, stateFromMastery, FEYNMAN_STAGES } from '../types'
 import { aiLightEdge, aiDecomposeNode } from '../lib/ai'
+import { recordActivity, type BadgeDefinition } from '../lib/achievements'
 import { useAppStore } from '../store/appStore'
 
 const STATES: TreeNode['state'][] = ['unlearned', 'learning', 'mastered', 'fuzzy']
+
+/** 成就解锁时逐条弹出庆祝提示 */
+function toastUnlocks(toast: ReturnType<typeof useAppStore.getState>['toast'], unlocks: BadgeDefinition[]) {
+  unlocks.forEach((b) => toast('✨ 成就解锁：' + b.emoji + ' ' + b.name + ' —— ' + b.desc, 'achievement'))
+}
 
 export default function NodePanel({
   node,
@@ -37,11 +43,19 @@ export default function NodePanel({
     if (state === node.state) return
     await db.nodes.update(node.id, { state, mastery: STATE_MASTERY[state], updatedAt: Date.now() })
     toast('状态已更新：' + STATE_LABEL[state], 'success')
+    if (state === 'mastered') {
+      const { unlocks } = await recordActivity('node-mastered', lineId)
+      toastUnlocks(toast, unlocks)
+    }
   }
 
   async function setMastery(value: number) {
     const state = stateFromMastery(value)
     await db.nodes.update(node.id, { mastery: value, state, updatedAt: Date.now() })
+    if (state === 'mastered' && node.state !== 'mastered') {
+      const { unlocks } = await recordActivity('node-mastered', lineId)
+      toastUnlocks(toast, unlocks)
+    }
   }
 
   async function lightEdge() {
@@ -56,6 +70,8 @@ export default function NodePanel({
         updatedAt: Date.now()
       })
       toast('关联已点亮！边上的文字就是「为什么」', 'success')
+      const { unlocks } = await recordActivity('edge-lit', lineId)
+      toastUnlocks(toast, unlocks)
     } catch (e) {
       toast('生成失败：' + (e as Error).message, 'error')
     } finally {

@@ -4,6 +4,7 @@ import { db } from '../db'
 import { useAppStore } from '../store/appStore'
 import { computeStats } from '../lib/treeUtils'
 import { buildDailyPlan, type DailyPlan, type PlanMode } from '../lib/plan'
+import { BADGES, activeDaysOf, computeStreak, dayKey, recordActivity } from '../lib/achievements'
 import { STATE_COLOR, type LineCategory, type LearningLine, type TreeNode } from '../types'
 
 const LANES: { key: LineCategory; icon: string; title: string; desc: string }[] = [
@@ -50,6 +51,7 @@ export default function Home({ onNewLine }: { onNewLine: (category: LineCategory
         </div>
       </div>
 
+      {lines.length > 0 && <IncentiveBar />}
       {lines.length > 0 && <TodayPlan lines={lines} nodes={nodes ?? []} />}
 
       <div className="lane-grid">
@@ -119,11 +121,15 @@ function TodayPlan({ lines, nodes }: { lines: LearningLine[]; nodes: TreeNode[] 
   const [plan, setPlan] = useState<DailyPlan | null>(null)
   const openLine = useAppStore((s) => s.openLine)
   const selectNode = useAppStore((s) => s.selectNode)
+  const toast = useAppStore((s) => s.toast)
 
   function generate() {
     if (!lineId) return
     const lineNodes = nodes.filter((n) => n.lineId === lineId)
     setPlan(buildDailyPlan(lineNodes, budget, mode))
+    void recordActivity('plan-generated', lineId, mode).then(({ unlocks }) => {
+      unlocks.forEach((b) => toast('✨ 成就解锁：' + b.emoji + ' ' + b.name + ' —— ' + b.desc, 'achievement'))
+    })
   }
 
   function pickLine(id: string) {
@@ -204,6 +210,42 @@ function TodayPlan({ lines, nodes }: { lines: LearningLine[]; nodes: TreeNode[] 
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+/** 激励横幅：连续学习天数 + 成就徽章 */
+function IncentiveBar() {
+  const activity = useLiveQuery(() => db.activity.toArray(), [])
+  const badgeRows = useLiveQuery(() => db.badges.toArray(), [])
+  if (!activity || !badgeRows) return null
+  const streak = computeStreak(activeDaysOf(activity), dayKey(Date.now()))
+  const unlockedIds = new Set(badgeRows.map((b) => b.id))
+  const unlocked = BADGES.filter((b) => unlockedIds.has(b.id))
+  const todayActive = activeDaysOf(activity).has(dayKey(Date.now()))
+  return (
+    <div className={'card incentive-bar' + (streak > 0 ? ' on-fire' : '')}>
+      <div className="incentive-streak" title="连续学习天数：今天学一点，火焰就不灭">
+        <span className="incentive-fire">{streak > 0 ? '🔥' : '🕯️'}</span>
+        <div>
+          <div className="incentive-streak-num">连续学习 {streak} 天</div>
+          <div className="muted small">{todayActive ? '今天已打卡，火焰在烧！' : streak > 0 ? '今天还没学，学一点就能续上' : '今天开始你的第一天'}</div>
+        </div>
+      </div>
+      <div className="incentive-badges">
+        <span className="muted small">🏅 成就 {unlocked.length}/{BADGES.length}</span>
+        <div className="incentive-badge-row">
+          {BADGES.map((b) => (
+            <span
+              key={b.id}
+              className={'incentive-badge' + (unlockedIds.has(b.id) ? ' unlocked' : ' locked')}
+              title={(unlockedIds.has(b.id) ? b.emoji + ' ' + b.name + ' · ' : '未解锁 · ' + b.desc + '（达成自动解锁）') + b.desc}
+            >
+              {unlockedIds.has(b.id) ? b.emoji : '🔒'}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
