@@ -57,8 +57,19 @@ export interface TreeNode {
   edgeWhy: string | null
   edgeExamples: string[]
   edgeLit: boolean
+  /** 高维认知解读：认知升级后对同一概念的重新理解（按需生成） */
+  highDim?: HighDimNote
   createdAt: number
   updatedAt: number
+}
+
+/** 高维认知解读记录 */
+export interface HighDimNote {
+  text: string
+  model: string
+  /** 生成时用户已掌握的概念数 */
+  masteredCount: number
+  at: number
 }
 
 export interface ProfileEntry {
@@ -89,7 +100,7 @@ export interface Settings {
 }
 
 /** 使用 AI 的功能模块 */
-export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman' | 'review'
+export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman' | 'review' | 'highdim'
 
 export const AI_MODULE_LABELS: Record<AiModule, string> = {
   chat: '摸底聊天（新建学习线时的 3 轮问答）',
@@ -98,7 +109,8 @@ export const AI_MODULE_LABELS: Record<AiModule, string> = {
   decompose: '深度分解（自动/手动拆到原子单元）',
   lightEdge: '边点亮（概念间的例子与为什么）',
   feynman: '费曼反馈（复述点评 + 应用出题与评分）',
-  review: '每周复盘（学习数据总结与下周建议）'
+  review: '每周复盘（学习数据总结与下周建议）',
+  highdim: '高维认知解读（认知升级后重新理解同一知识）'
 }
 
 export interface ChatMessage {

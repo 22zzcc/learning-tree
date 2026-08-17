@@ -4,10 +4,10 @@ import { JSDOM } from 'jsdom'
 import { writeFileSync } from 'node:fs'
 import * as d3 from 'd3'
 import { db, uid } from '../src/db'
-import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes, demoWeeklyReview } from '../src/lib/demo'
+import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes, demoWeeklyReview, demoHighDimInterpretation } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback, aiWeeklyReview } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback, aiWeeklyReview, aiHighDimInterpretation } from '../src/lib/ai'
 import { feynmanRemainingSeconds, feynmanStageSeconds, feynmanNextStage, feynmanSessionInit, feynmanAvgScore, feynmanCompletionBoost } from '../src/lib/feynman'
 import { buildDailyPlan, eligibleNodes, nodeMinutes } from '../src/lib/plan'
 import { BADGES, computeStreak, evaluateBadges, dayKey, recordActivity } from '../src/lib/achievements'
@@ -516,6 +516,23 @@ check('有费曼记录时复盘提到平均分', demoWeeklyReview(wsWithFeynman)
 const demoTpl = demoWeeklyReview(ws)
 check('演示模板与 AI 演示路径一致', demoTpl === reviewText)
 check('复盘模块未覆盖时跟随全局默认', moduleModel(fakeSettings, 'review') === 'deepseek-v4-pro')
+
+// ---- 14. 高维认知解读 ----
+
+const hdText = await aiHighDimInterpretation(td.root!, ['除法基本概念', '分数约分'])
+check('高维解读生成可用文本（演示模式）', hdText.length > 30 && hdText.includes('更高维度') && hdText.includes(td.root!.name), hdText.slice(0, 40))
+check('高维解读会引用已掌握概念', hdText.includes('除法基本概念'))
+check('演示模板与 AI 演示路径一致', demoHighDimInterpretation(td.root!, ['除法基本概念', '分数约分']) === hdText)
+await db.nodes.update(td.root!.id, { highDim: { text: hdText, model: 'demo', masteredCount: 2, at: Date.now() } })
+const hdNode = await db.nodes.get(td.root!.id)
+check('高维解读持久化到节点', hdNode?.highDim?.text === hdText && hdNode.highDim.masteredCount === 2)
+const tmpNode = await db.nodes.get(td.root!.id)
+if (tmpNode) {
+  delete (tmpNode as Partial<TreeNode>).highDim
+  await db.nodes.put(tmpNode)
+}
+check('高维解读可清除', (await db.nodes.get(td.root!.id))?.highDim === undefined)
+check('高维模块未覆盖时跟随全局默认', moduleModel(fakeSettings, 'highdim') === 'deepseek-v4-pro')
 
 // ---- 汇总 ----
 console.log('')

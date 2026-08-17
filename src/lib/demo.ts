@@ -724,3 +724,24 @@ export function demoWeeklyReview(stats: WeekStats): string {
   lines.push('- 下周建议：优先清掉「模糊」节点；每天给「今日学习计划」输入真实可用的分钟数，按计划推进。')
   return lines.join('\n')
 }
+
+// ---------- 高维认知解读（演示模式模板） ----------
+
+export function demoHighDimInterpretation(
+  node: Pick<TreeNode, 'name' | 'definition' | 'principle'>,
+  masteredNames: string[]
+): string {
+  const related = masteredNames.filter((n) => n !== node.name).slice(0, 3)
+  const lines: string[] = []
+  lines.push('站在更高维度看「' + node.name + '」：')
+  if (node.principle) {
+    lines.push('- 它成立的深层原因是「' + node.principle.slice(0, 60) + '」——记住这个原因，很多长得不一样的概念其实是同一件事。')
+  } else {
+    lines.push('- 它不只是「' + node.definition.slice(0, 40) + '」，而是一类问题的通用解法的一个特例。')
+  }
+  if (related.length > 0) {
+    lines.push('- 回看你已经掌握的「' + related.join('」「') + '」，会发现它们与「' + node.name + '」共享同一条暗线：先看清结构，再动手。')
+  }
+  lines.push('- 下一次认知升级时再回来看它，你大概率能把它讲得更短、更本质。')
+  return lines.join('\n')
+}

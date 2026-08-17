@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db'
+import { db, getSettings } from '../db'
 import type { TreeNode } from '../types'
 import { STATE_LABEL, STATE_COLOR, STATE_MASTERY, stateFromMastery, FEYNMAN_STAGES } from '../types'
-import { aiLightEdge, aiDecomposeNode } from '../lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiHighDimInterpretation, moduleModel } from '../lib/ai'
 import { recordActivity, type BadgeDefinition } from '../lib/achievements'
 import { useAppStore } from '../store/appStore'
 
@@ -33,6 +33,8 @@ export default function NodePanel({
   const openFeynman = useAppStore((s) => s.openFeynman)
   const [lighting, setLighting] = useState(false)
   const [decomposing, setDecomposing] = useState(false)
+  const [highDimBusy, setHighDimBusy] = useState(false)
+  const masteredNodes = useLiveQuery(() => db.nodes.filter((n) => n.state === 'mastered').toArray(), [])
   const feynman = useLiveQuery(
     () => db.feynman.where('nodeId').equals(node.id).sortBy('updatedAt').then((rows) => rows[rows.length - 1] ?? null),
     [node.id]
@@ -98,6 +100,24 @@ export default function NodePanel({
       toast('分解失败：' + (e as Error).message, 'error')
     } finally {
       setDecomposing(false)
+    }
+  }
+
+  async function highDim() {
+    setHighDimBusy(true)
+    try {
+      const names = (masteredNodes ?? []).map((n) => n.name)
+      const settings = await getSettings()
+      const text = await aiHighDimInterpretation(node, names)
+      await db.nodes.update(node.id, {
+        highDim: { text, model: moduleModel(settings, 'highdim'), masteredCount: names.length, at: Date.now() },
+        updatedAt: Date.now()
+      })
+      toast('高维解读已生成：认知升级后的新视角', 'success')
+    } catch (e) {
+      toast('高维解读生成失败：' + (e as Error).message, 'error')
+    } finally {
+      setHighDimBusy(false)
     }
   }
 
@@ -172,6 +192,30 @@ export default function NodePanel({
       <div className="section">
         <h4>💡 为什么重要</h4>
         <p>{node.whyImportant}</p>
+      </div>
+
+      <div className="section">
+        <h4>🔭 高维认知解读</h4>
+        {node.highDim ? (
+          <>
+            <p style={{ whiteSpace: 'pre-wrap' }}>{node.highDim.text}</p>
+            <p className="muted" style={{ fontSize: 12 }}>
+              生成于已掌握 {node.highDim.masteredCount} 个概念时 · {node.highDim.model}
+            </p>
+            <button className="btn btn-sm" onClick={highDim} disabled={highDimBusy} title="认知又升级了，用当前的知识视野重新解读">
+              {highDimBusy ? '生成中…' : '🔄 认知又升级了，重新解读'}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="muted">
+              认知升级后，再看同一个概念会有全新的理解。AI 会结合你现在已掌握的全部概念，给出更高维度的解读。
+            </p>
+            <button className="btn btn-sm btn-primary" onClick={highDim} disabled={highDimBusy}>
+              {highDimBusy ? 'AI 生成中…' : '🔭 生成高维解读'}
+            </button>
+          </>
+        )}
       </div>
 
       {parent && (

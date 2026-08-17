@@ -3,7 +3,7 @@
 import { getSettings, uid } from '../db'
 import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec, GenerationMeta, FeynmanFeedback, FeynmanTask } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
-import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, demoFeynmanRetellFeedback, demoFeynmanTasks, demoFeynmanAnswerFeedback, demoWeeklyReview, type DemoNodeSpec } from './demo'
+import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, demoFeynmanRetellFeedback, demoFeynmanTasks, demoFeynmanAnswerFeedback, demoWeeklyReview, demoHighDimInterpretation, type DemoNodeSpec } from './demo'
 import type { WeekStats } from './review'
 
 export function isDemoMode(settings: { apiKey: string }): boolean {
@@ -1183,5 +1183,42 @@ export async function aiWeeklyReview(stats: WeekStats): Promise<string> {
       }
     ],
     { temperature: 0.6, maxTokens: 500, model: moduleModel(settings, 'review') }
+  )
+}
+
+// ---- 高维认知解读：认知升级后重新理解同一知识 ----
+
+const HIGHDIM_SYSTEM = [
+  '你是认知升级教练。用户已经掌握了一批概念，现在要用更高的视角重新理解其中一个旧概念。',
+  '请输出 150 字以内的中文解读，按以下结构：',
+  '1. 一句「更高维度」的本质概括（这个概念的深层原理/它在更大图景里的位置）；',
+  '2. 指出它和用户已掌握概念之间的一条暗线联系；',
+  '3. 一句「下次认知再升级时你会看到什么」。',
+  '不要列表，直接成段；不要复述定义；通俗而深刻。'
+].join('\n')
+
+/** 高维认知解读：结合用户已掌握的概念重新解读旧概念 */
+export async function aiHighDimInterpretation(
+  node: Pick<TreeNode, 'name' | 'definition' | 'principle' | 'example'>,
+  masteredNames: string[]
+): Promise<string> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) return demoHighDimInterpretation(node, masteredNames)
+  const others = masteredNames.filter((n) => n !== node.name).slice(0, 12)
+  return await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: HIGHDIM_SYSTEM },
+      {
+        role: 'user',
+        content:
+          '待重新理解的概念：' + node.name + '\n它的定义：' + node.definition +
+          (node.principle ? '\n它的原理：' + node.principle : '') +
+          '\n它的例子：' + node.example +
+          (others.length > 0 ? '\n用户已掌握的概念：' + others.join('、') : '\n用户目前没有其他已掌握的概念。') +
+          '\n请给出高维认知解读。'
+      }
+    ],
+    { temperature: 0.7, maxTokens: 400, model: moduleModel(settings, 'highdim') }
   )
 }
