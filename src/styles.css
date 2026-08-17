@@ -584,3 +584,64 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 .feynman-done { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 10px 0; }
 .feynman-done-emoji { font-size: 44px; }
 .feynman-done h3 { margin: 0; }
+
+.feynman-stage-minutes { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b7d74; }
+.feynman-stage-minutes select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+  background: #fff;
+}
+
+/* ---------- 今日学习计划 ---------- */
+
+.today-plan { margin: 0 0 18px; }
+
+.today-plan-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.today-plan-head h3 { margin: 0; }
+
+.plan-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.plan-controls select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--ink);
+  min-width: 220px;
+}
+
+.plan-budget { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.plan-budget input {
+  width: 64px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+}
+
+.plan-result { margin-top: 12px; }
+
+.plan-summary { margin: 0 0 8px; font-size: 14px; }
+
+.plan-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.plan-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.plan-name { flex: 1; font-size: 14px; }
+.plan-meta { white-space: nowrap; }

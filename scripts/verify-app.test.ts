@@ -9,6 +9,8 @@ import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
 import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback } from '../src/lib/ai'
 import { feynmanRemainingSeconds, feynmanStageSeconds, feynmanNextStage, feynmanSessionInit, feynmanAvgScore, feynmanCompletionBoost } from '../src/lib/feynman'
+import { buildDailyPlan, eligibleNodes, nodeMinutes } from '../src/lib/plan'
+import type { TreeNode, NodeState } from '../src/types'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -355,6 +357,66 @@ check('费曼会话删除后清理干净', (await db.feynman.count()) === 0)
 
 // 10.5 费曼模块跟随模块模型解析
 check('费曼模块未覆盖时跟随全局默认', moduleModel(fakeSettings, 'feynman') === 'deepseek-v4-pro')
+
+// ---- 11. 今日学习计划（最少 / 极限） ----
+
+const mkNode = (id: string, parentId: string | null, state: NodeState, minutes?: number): TreeNode => ({
+  id,
+  lineId: 'plan-test',
+  parentId,
+  name: id,
+  definition: 'x',
+  example: 'x',
+  whyImportant: 'x',
+  state,
+  minutes,
+  edgeWhy: null,
+  edgeExamples: [],
+  edgeLit: false,
+  createdAt: 1,
+  updatedAt: 1
+})
+
+const planNodes: TreeNode[] = [
+  mkNode('root', null, 'mastered', 10),
+  mkNode('a-fuzzy', 'root', 'fuzzy', 8),
+  mkNode('b-learning', 'root', 'learning', 6),
+  mkNode('c-unlearned', 'root', 'unlearned', 4),
+  mkNode('d-mastered', 'root', 'mastered', 5),
+  mkNode('e-under-unlearned-parent', 'c-unlearned', 'unlearned', 3),
+  mkNode('f-no-minutes', 'root', 'unlearned')
+]
+
+const eligible = eligibleNodes(planNodes)
+check(
+  '计划只挑「前沿」节点（未掌握且父节点已掌握或无父节点）',
+  eligible.length === 4 &&
+    eligible.every((n) => n.id !== 'd-mastered' && n.id !== 'e-under-unlearned-parent'),
+  JSON.stringify(eligible.map((n) => n.id))
+)
+check('缺失预计时长按 5 分钟计', nodeMinutes(mkNode('x', null, 'unlearned')) === 5 && nodeMinutes(mkNode('x', null, 'unlearned', 8)) === 8)
+
+const planMin20 = buildDailyPlan(planNodes, 20, 'minimal')
+check(
+  '最少模式优先补薄弱环节（模糊 > 学习中 > 未学）',
+  planMin20.items.length === 3 &&
+    planMin20.items[0].node.id === 'a-fuzzy' &&
+    planMin20.items[1].node.id === 'b-learning' &&
+    planMin20.items[2].node.id === 'c-unlearned',
+  JSON.stringify(planMin20.items.map((i) => i.node.id + ':' + i.minutes))
+)
+const planMin = buildDailyPlan(planNodes, 12, 'minimal')
+const planExt = buildDailyPlan(planNodes, 12, 'extreme')
+check('极限模式在同样预算内塞进最多节点', planExt.items.length >= planMin.items.length, 'extreme ' + planExt.items.length + ' vs minimal ' + planMin.items.length)
+check(
+  '极限模式按短节点优先（时长非递减）',
+  planExt.items.every((it, i, arr) => i === 0 || arr[i - 1].minutes <= it.minutes),
+  JSON.stringify(planExt.items.map((i) => i.minutes))
+)
+const planTiny = buildDailyPlan(planNodes, 1, 'minimal')
+check('预算装不下任何节点时仍保留最高优先级一项并提示超支', planTiny.items.length === 1 && planTiny.leftoverMinutes < 0 && planTiny.note.includes('挑战'), JSON.stringify(planTiny))
+const planDone = buildDailyPlan([mkNode('g', null, 'mastered', 5)], 30, 'minimal')
+check('全部掌握时计划为空并给出完成提示', planDone.items.length === 0 && planDone.note.includes('全部掌握'), planDone.note)
 
 // ---- 汇总 ----
 console.log('')

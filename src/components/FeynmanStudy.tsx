@@ -31,19 +31,23 @@ function formatClock(s: number): string {
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
 }
 
-/** 阶段计时器：显示剩余时间 + 开始/暂停/重置 */
+/** 阶段计时器：显示剩余时间 + 开始/暂停/重置 + 每阶段时长（弹性时长） */
 function StageTimer({
   remaining,
   running,
+  minutes,
   onStart,
   onPause,
-  onReset
+  onReset,
+  onMinutesChange
 }: {
   remaining: number
   running: boolean
+  minutes: number
   onStart: () => void
   onPause: () => void
   onReset: () => void
+  onMinutesChange: (m: number) => void
 }) {
   return (
     <div className={'feynman-timer' + (remaining === 0 ? ' done' : '')}>
@@ -56,7 +60,16 @@ function StageTimer({
             ▶ 开始计时
           </button>
         )}
-        <button className="btn btn-sm" onClick={onReset}>↺ 重置 30 分钟</button>
+        <button className="btn btn-sm" onClick={onReset}>↺ 重置 {minutes} 分钟</button>
+        <label className="feynman-stage-minutes" title="弹性时长：改每阶段时长会重置当前阶段的计时">
+          每阶段
+          <select value={minutes} onChange={(e) => onMinutesChange(Number(e.target.value))}>
+            <option value={5}>5 分钟</option>
+            <option value={10}>10 分钟</option>
+            <option value={15}>15 分钟</option>
+            <option value={30}>30 分钟</option>
+          </select>
+        </label>
       </div>
     </div>
   )
@@ -180,6 +193,12 @@ export default function FeynmanStudy({ lineId, nodeId, onClose }: { lineId: stri
   function resetTimer() {
     void patch({ stageEndsAt: null, stageRemainingSeconds: feynmanStageSeconds(session!.stageMinutes) })
     setNow(Date.now())
+  }
+
+  function changeStageMinutes(min: number) {
+    void patch({ stageMinutes: min, stageEndsAt: null, stageRemainingSeconds: feynmanStageSeconds(min) })
+    setNow(Date.now())
+    toast('每阶段时长已改为 ' + min + ' 分钟', 'success')
   }
 
   async function advanceTo(next: FeynmanStage) {
@@ -336,9 +355,11 @@ export default function FeynmanStudy({ lineId, nodeId, onClose }: { lineId: stri
           <StageTimer
             remaining={remaining}
             running={running}
+            minutes={session.stageMinutes}
             onStart={startTimer}
             onPause={pauseTimer}
             onReset={resetTimer}
+            onMinutesChange={changeStageMinutes}
           />
 
           {stage === 'understand' && (
