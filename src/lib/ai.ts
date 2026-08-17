@@ -1,9 +1,9 @@
 // ---------- AI 编排：有 API Key 走 DeepSeek，没有则走演示模板 ----------
 
 import { getSettings, uid } from '../db'
-import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec, GenerationMeta } from '../types'
+import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec, GenerationMeta, FeynmanFeedback, FeynmanTask } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
-import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, type DemoNodeSpec } from './demo'
+import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, demoFeynmanRetellFeedback, demoFeynmanTasks, demoFeynmanAnswerFeedback, type DemoNodeSpec } from './demo'
 
 export function isDemoMode(settings: { apiKey: string }): boolean {
   return !settings.apiKey
@@ -999,4 +999,157 @@ export async function aiLightEdge(
     throw new Error('边点亮失败：AI 返回无法解析的内容（' + (e as Error).message + '）')
   }
   throw new Error('边点亮失败：AI 返回缺少 edgeWhy 或 examples')
+}
+
+// ---- 费曼 3×30：复述点评 / 应用出题 / 答题评分 ----
+
+const FEYNMAN_RETELL_SYSTEM = [
+  '你是费曼学习法教练。用户正在复述一个概念，你要对照参考材料找出他理解上的缺口，而不是批改作文。',
+  '输出 JSON：{"score": 0~100 整数, "strengths": ["讲得好的点，最多3条"], "gaps": ["遗漏或说错的关键点，最多5条"], "suggestion": "下一步建议，一句话"}',
+  '评分标准：',
+  '1. 覆盖了定义、原理、为什么重要的核心要点（每缺一个关键点扣分）；',
+  '2. 用自己的话而不是照抄原文（照抄不扣光但提示）；',
+  '3. 有具体例子支撑（有例子加分）；',
+  '4. 讲错了关键事实要重扣并列入 gaps。',
+  '只输出 JSON。'
+].join('\n')
+
+const FEYNMAN_TASKS_SYSTEM = [
+  '你是费曼学习法教练，负责出「举例应用」题检验用户是否真的会用某个概念。',
+  '输出 JSON：{"tasks": [{"question": "一道应用场景题，逼用户把概念用起来", "hint": "可选提示，30 字内"}]}',
+  '要求：',
+  '1. 出 2~3 道题，从易到难；',
+  '2. 题目要落在「把概念用于真实场景」，而不是复述定义；',
+  '3. 优先结合概念自带的最小实践任务与掌握标准出题；',
+  '4. 只输出 JSON。'
+].join('\n')
+
+const FEYNMAN_ANSWER_SYSTEM = [
+  '你是费曼学习法教练，正在给用户的「举例应用」作答打分。',
+  '输出 JSON：{"score": 0~100 整数, "strengths": ["答得好的点，最多2条"], "gaps": ["漏洞或错误，最多3条"], "suggestion": "一句话建议"}',
+  '评分标准：答案是否真正用上了该概念、步骤是否可执行、有没有暴露理解错误。',
+  '只输出 JSON。'
+].join('\n')
+
+/** 解析 AI 返回的费曼点评 JSON */
+function parseFeynmanFeedback(answer: string, failMsg: string): FeynmanFeedback {
+  try {
+    const data = extractJson<{ score?: unknown; strengths?: unknown; gaps?: unknown; suggestion?: unknown }>(answer)
+    const score = Math.max(0, Math.min(100, Math.round(Number(data.score ?? NaN))))
+    const strengths = Array.isArray(data.strengths) ? data.strengths.slice(0, 3).map(String).map((s) => s.trim()).filter(Boolean) : []
+    const gaps = Array.isArray(data.gaps) ? data.gaps.slice(0, 5).map(String).map((s) => s.trim()).filter(Boolean) : []
+    const suggestion = typeof data.suggestion === 'string' ? data.suggestion.trim() : ''
+    if (!Number.isFinite(score)) throw new Error('score 不是数字')
+    return { score, strengths, gaps, suggestion }
+  } catch (e) {
+    console.error('费曼点评解析失败', e)
+    throw new Error(failMsg + '（' + (e as Error).message + '）')
+  }
+}
+
+/** 复述点评：对照节点材料找出理解缺口 */
+export async function aiFeynmanRetellFeedback(
+  node: Pick<TreeNode, 'name' | 'definition' | 'principle' | 'example'>,
+  retell: string
+): Promise<FeynmanFeedback> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) return demoFeynmanRetellFeedback(node, retell)
+  const answer = await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: FEYNMAN_RETELL_SYSTEM },
+      {
+        role: 'user',
+        content: [
+          '概念：' + node.name,
+          '定义：' + node.definition,
+          node.principle ? '原理：' + node.principle : '',
+          '例子：' + node.example,
+          '',
+          '用户的复述：',
+          retell,
+          '',
+          '请对照材料点评这份复述。'
+        ].filter(Boolean).join('\n')
+      }
+    ],
+    { json: true, temperature: 0.5, model: moduleModel(settings, 'feynman') }
+  )
+  return parseFeynmanFeedback(answer, '复述点评失败：AI 返回无法解析的内容')
+}
+
+/** 应用出题：生成 2~3 道应用场景题 */
+export async function aiFeynmanTasks(
+  node: Pick<TreeNode, 'name' | 'definition' | 'test' | 'practice'>
+): Promise<FeynmanTask[]> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) return demoFeynmanTasks(node)
+  const answer = await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: FEYNMAN_TASKS_SYSTEM },
+      {
+        role: 'user',
+        content: [
+          '概念：' + node.name,
+          '定义：' + node.definition,
+          node.practice ? '最小实践任务：' + node.practice : '',
+          node.test ? '掌握标准：' + node.test : '',
+          '请出 2~3 道应用场景题。'
+        ].filter(Boolean).join('\n')
+      }
+    ],
+    { json: true, temperature: 0.7, model: moduleModel(settings, 'feynman') }
+  )
+  try {
+    const data = extractJson<{ tasks?: unknown }>(answer)
+    const tasks = Array.isArray(data.tasks)
+      ? data.tasks
+          .map((t) => (typeof t === 'object' && t !== null ? (t as Record<string, unknown>) : null))
+          .filter((t): t is Record<string, unknown> => t !== null && typeof t.question === 'string' && t.question.trim().length > 0)
+          .slice(0, 3)
+          .map((t, i) => ({
+            id: 't' + (i + 1),
+            question: (t.question as string).trim(),
+            ...(typeof t.hint === 'string' && t.hint.trim() ? { hint: (t.hint as string).trim() } : {})
+          }))
+      : []
+    if (tasks.length >= 2) return tasks
+  } catch (e) {
+    console.error('应用出题解析失败', e)
+    throw new Error('应用出题失败：AI 返回无法解析的内容（' + (e as Error).message + '）')
+  }
+  throw new Error('应用出题失败：AI 返回的题目不足 2 道')
+}
+
+/** 答题评分：对照题目与该概念的掌握标准 */
+export async function aiFeynmanAnswerFeedback(
+  node: Pick<TreeNode, 'name' | 'test'>,
+  task: FeynmanTask,
+  answer: string
+): Promise<FeynmanFeedback> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) return demoFeynmanAnswerFeedback(node, task, answer)
+  const res = await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: FEYNMAN_ANSWER_SYSTEM },
+      {
+        role: 'user',
+        content: [
+          '概念：' + node.name,
+          node.test ? '掌握标准：' + node.test : '',
+          '题目：' + task.question,
+          task.hint ? '提示：' + task.hint : '',
+          '',
+          '用户的作答：',
+          answer,
+          '',
+          '请评分并给出反馈。'
+        ].filter(Boolean).join('\n')
+      }
+    ],
+    { json: true, temperature: 0.5, model: moduleModel(settings, 'feynman') }
+  )
+  return parseFeynmanFeedback(res, '答题评分失败：AI 返回无法解析的内容')
 }

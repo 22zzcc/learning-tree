@@ -8,6 +8,7 @@ import TreeView from './components/TreeView'
 import Profile from './components/Profile'
 import Settings from './components/Settings'
 import OnboardingWizard from './components/OnboardingWizard'
+import FeynmanStudy from './components/FeynmanStudy'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'home', label: '🏠 学习线' },
@@ -35,6 +36,8 @@ export default function App() {
   const openLine = useAppStore((s) => s.openLine)
   const toasts = useAppStore((s) => s.toasts)
   const dismissToast = useAppStore((s) => s.dismissToast)
+  const feynman = useAppStore((s) => s.feynman)
+  const closeFeynman = useAppStore((s) => s.closeFeynman)
   const [showWizard, setShowWizard] = useState(false)
   const [wizardCategory, setWizardCategory] = useState<LineCategory>('expert')
   const lines = useLiveQuery(() => db.lines.toArray(), [])
@@ -81,6 +84,7 @@ export default function App() {
         {tab === 'settings' && <Settings />}
       </main>
       {showWizard && <OnboardingWizard initialCategory={wizardCategory} onClose={() => setShowWizard(false)} />}
+      {feynman && <FeynmanStudy lineId={feynman.lineId} nodeId={feynman.nodeId} onClose={closeFeynman} />}
       <div className="toasts">
         {toasts.map((t) => (
           <div key={t.id} className={'toast toast-' + t.kind} onClick={() => dismissToast(t.id)} title="点击关闭">

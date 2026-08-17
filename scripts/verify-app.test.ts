@@ -7,7 +7,8 @@ import { db, uid } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback } from '../src/lib/ai'
+import { feynmanRemainingSeconds, feynmanStageSeconds, feynmanNextStage, feynmanSessionInit, feynmanAvgScore, feynmanCompletionBoost } from '../src/lib/feynman'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
 
@@ -296,6 +297,64 @@ await db.nodes.add({
 const removed = await removeMistakeNodes()
 check('removeMistakeNodes 清除误区节点', removed === 1, 'got ' + removed)
 check('误区节点已从数据库消失', (await db.nodes.filter((n) => /误区/.test(n.name)).count()) === 0)
+
+// ---- 10. 费曼 3×30 ----
+
+// 10.1 计时与阶段纯逻辑
+const fsess = feynmanSessionInit(sd.id, td.root!.id)
+check('费曼会话初始为理解阶段且每阶段 30 分钟', fsess.stage === 'understand' && feynmanStageSeconds() === 1800 && fsess.stageRemainingSeconds === 1800)
+const now0 = Date.now()
+check(
+  '计时运行中剩余秒数按截止时间计算',
+  feynmanRemainingSeconds({ ...fsess, stageEndsAt: now0 + 90_000 }, now0) === 90
+)
+check(
+  '计时暂停时剩余秒数按暂存值计算',
+  feynmanRemainingSeconds({ ...fsess, stageEndsAt: null, stageRemainingSeconds: 120 }, now0) === 120
+)
+check('阶段推进顺序正确', feynmanNextStage('understand') === 'retell' && feynmanNextStage('retell') === 'apply' && feynmanNextStage('apply') === null)
+
+// 10.2 复述点评（演示模式规则）
+const fbBad = await aiFeynmanRetellFeedback(td.root!, '我不会')
+const fbGood = await aiFeynmanRetellFeedback(
+  td.root!,
+  '短除法是一种分解质因数的竖式计算方法：用质数不断去除一个数，直到商为质数，用它可快速求最大公因数和最小公倍数。比如 36 不断除以 2 和 3，得到 2×2×3×3。'
+)
+check('复述点评返回 0~100 分与缺口列表', fbBad.score >= 0 && fbBad.score <= 100 && fbBad.gaps.length >= 1 && fbGood.score >= 0 && fbGood.score <= 100)
+check('讲得完整比没讲得分高', fbGood.score > fbBad.score, JSON.stringify({ bad: fbBad.score, good: fbGood.score }))
+check('得分高时缺口更少或没有', fbGood.gaps.length <= fbBad.gaps.length)
+
+// 10.3 应用出题与答题评分
+const ftasks = await aiFeynmanTasks(td.root!)
+check('应用出题 2~3 道且都有题干', ftasks.length >= 2 && ftasks.length <= 3 && ftasks.every((t) => (t.question ?? '').length > 0), 'got ' + ftasks.length)
+const fAnsBad = await aiFeynmanAnswerFeedback(td.root!, ftasks[0], '不会')
+const fAnsGood = await aiFeynmanAnswerFeedback(
+  td.root!,
+  ftasks[0],
+  '我会先把被除数写成质因数连乘的形式，然后反复除以能整除的质数直到商为质数，这样就能快速求出最大公因数和最小公倍数，用纸笔一步步做下来。'
+)
+check('答题评分返回 0~100 分', fAnsBad.score >= 0 && fAnsBad.score <= 100 && fAnsGood.score >= 0 && fAnsGood.score <= 100)
+check('认真作答比空答得分高', fAnsGood.score > fAnsBad.score, JSON.stringify({ bad: fAnsBad.score, good: fAnsGood.score }))
+
+// 10.4 会话持久化与结算
+await db.feynman.put(fsess)
+const readBack = await db.feynman.get(fsess.id)
+check('费曼会话写入数据库后可读回', readBack?.nodeId === td.root!.id && readBack?.stage === 'understand')
+const scored = {
+  ...fsess,
+  retellFeedback: { score: 80, strengths: ['s'], gaps: [], suggestion: 'g' },
+  answerFeedbacks: {
+    a: { score: 60, strengths: ['s'], gaps: [], suggestion: 'g' },
+    b: { score: 100, strengths: ['s'], gaps: [], suggestion: 'g' }
+  }
+}
+check('会话平均分为各评分均值', feynmanAvgScore(scored) === 80, 'got ' + feynmanAvgScore(scored))
+check('完成加成 10~20（平均分 80 → +18）', feynmanCompletionBoost(80) === 18 && feynmanCompletionBoost(100) === 20 && feynmanCompletionBoost(0) === 10)
+await db.feynman.delete(fsess.id)
+check('费曼会话删除后清理干净', (await db.feynman.count()) === 0)
+
+// 10.5 费曼模块跟随模块模型解析
+check('费曼模块未覆盖时跟随全局默认', moduleModel(fakeSettings, 'feynman') === 'deepseek-v4-pro')
 
 // ---- 汇总 ----
 console.log('')

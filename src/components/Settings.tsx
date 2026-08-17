@@ -55,7 +55,7 @@ export default function Settings() {
     setTesting(true)
     try {
       const cur = await getSettings()
-      const mods: AiModule[] = ['chat', 'checklist', 'skeleton', 'decompose', 'lightEdge']
+      const mods: AiModule[] = Object.keys(AI_MODULE_LABELS) as AiModule[]
       const results = await Promise.all(
         mods.map(async (m) => {
           const model = moduleModel(cur, m)
@@ -191,7 +191,7 @@ export default function Settings() {
             {testing ? '测试中…' : '测试连接（骨架模型）'}
           </button>
           <button className="btn" onClick={testAllModels} disabled={testing || !s.apiKey}>
-            {testing ? '测试中…' : '测试全部 5 个模块的模型'}
+            {testing ? '测试中…' : '测试全部 ' + Object.keys(AI_MODULE_LABELS).length + ' 个模块的模型'}
           </button>
         </div>
       </div>
@@ -233,9 +233,10 @@ export default function Settings() {
       </div>
 
       <div className="card settings-block">
-        <h3>ℹ️ 关于 1.0</h3>
+        <h3>ℹ️ 关于</h3>
         <p className="muted small" style={{ marginTop: 0 }}>
-          当前版本聚焦「目标摸底 → 知识树 → 图片导出」主线。后续版本规划：费曼 3×30 学习流程、弹性时长与挑战模式、
+          当前版本：1.0 主线（目标摸底 → 知识树 → 图片导出）+ 2.0 费曼学习法 3×30
+          （理解 → 复述 → 举例应用，AI 全程点评）。后续版本规划：弹性时长与挑战模式、
           娱乐激励正反馈、复述笔记本与周复盘、高维认知解读。
         </p>
       </div>

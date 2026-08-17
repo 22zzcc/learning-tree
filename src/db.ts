@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { LearningLine, TreeNode, ProfileEntry, Settings, OnboardingSession } from './types'
+import type { LearningLine, TreeNode, ProfileEntry, Settings, OnboardingSession, FeynmanSession } from './types'
 
 export class LearnTreeDB extends Dexie {
   lines!: Table<LearningLine, string>
@@ -7,6 +7,7 @@ export class LearnTreeDB extends Dexie {
   profile!: Table<ProfileEntry, string>
   settings!: Table<Settings, string>
   onboarding!: Table<OnboardingSession, string>
+  feynman!: Table<FeynmanSession, string>
 
   constructor() {
     super('xueshu-learning-tree')
@@ -16,6 +17,15 @@ export class LearnTreeDB extends Dexie {
       profile: 'id, source, addedAt',
       settings: 'id',
       onboarding: 'id, lineId'
+    })
+    // v2：费曼 3×30 学习会话
+    this.version(2).stores({
+      lines: 'id, createdAt',
+      nodes: 'id, lineId, parentId, state',
+      profile: 'id, source, addedAt',
+      settings: 'id',
+      onboarding: 'id, lineId',
+      feynman: 'id, lineId, nodeId, status, updatedAt'
     })
   }
 }
@@ -55,15 +65,16 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 }
 
 export async function exportAllData(): Promise<string> {
-  const [lines, nodes, profile, settings, onboarding] = await Promise.all([
+  const [lines, nodes, profile, settings, onboarding, feynman] = await Promise.all([
     db.lines.toArray(),
     db.nodes.toArray(),
     db.profile.toArray(),
     db.settings.toArray(),
-    db.onboarding.toArray()
+    db.onboarding.toArray(),
+    db.feynman.toArray()
   ])
   return JSON.stringify(
-    { version: 1, exportedAt: new Date().toISOString(), lines, nodes, profile, settings, onboarding },
+    { version: 2, exportedAt: new Date().toISOString(), lines, nodes, profile, settings, onboarding, feynman },
     null,
     2
   )

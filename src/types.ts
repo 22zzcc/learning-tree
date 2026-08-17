@@ -89,14 +89,15 @@ export interface Settings {
 }
 
 /** 使用 AI 的功能模块 */
-export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge'
+export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman'
 
 export const AI_MODULE_LABELS: Record<AiModule, string> = {
   chat: '摸底聊天（新建学习线时的 3 轮问答）',
   checklist: '诊断清单（从能力图谱挑关键前置能力）',
   skeleton: '能力图谱骨架（生成大类与章节）',
   decompose: '深度分解（自动/手动拆到原子单元）',
-  lightEdge: '边点亮（概念间的例子与为什么）'
+  lightEdge: '边点亮（概念间的例子与为什么）',
+  feynman: '费曼反馈（复述点评 + 应用出题与评分）'
 }
 
 export interface ChatMessage {
@@ -165,4 +166,67 @@ export function stateFromMastery(m: number): NodeState {
   if (m >= 30) return 'learning'
   if (m >= 5) return 'fuzzy'
   return 'unlearned'
+}
+
+// ---------- 费曼学习法 3×30 ----------
+
+/** 费曼三阶段：理解 → 复述 → 举例应用 */
+export type FeynmanStage = 'understand' | 'retell' | 'apply'
+
+export const FEYNMAN_STAGES: FeynmanStage[] = ['understand', 'retell', 'apply']
+
+export const FEYNMAN_STAGE_LABEL: Record<FeynmanStage, string> = {
+  understand: '理解',
+  retell: '复述',
+  apply: '举例应用'
+}
+
+/** 每阶段默认时长（分钟）：3 阶段 × 30 分钟 */
+export const FEYNMAN_STAGE_MINUTES = 30
+
+/** AI 点评结果（复述点评与答题评分共用） */
+export interface FeynmanFeedback {
+  /** 0~100 */
+  score: number
+  /** 讲得好 / 答得对的地方 */
+  strengths: string[]
+  /** 遗漏点 / 错误点（费曼法核心：找出缺口） */
+  gaps: string[]
+  /** 下一步建议 */
+  suggestion: string
+}
+
+/** 举例应用阶段的一道应用场景题 */
+export interface FeynmanTask {
+  id: string
+  question: string
+  hint?: string
+}
+
+/** 一条费曼 3×30 学习会话（每个节点一条，可中断续学） */
+export interface FeynmanSession {
+  id: string
+  lineId: string
+  nodeId: string
+  stage: FeynmanStage
+  status: 'active' | 'done'
+  /** 每阶段分钟数（默认 30，为后续「弹性时长」预留） */
+  stageMinutes: number
+  /** 当前阶段倒计时截止时间戳（毫秒）；null = 计时未在运行 */
+  stageEndsAt: number | null
+  /** 暂停/未开始时的剩余秒数，恢复计时时转为 stageEndsAt */
+  stageRemainingSeconds: number
+  /** 复述原文（用户提交的最新一版） */
+  retell: string
+  retellFeedback: FeynmanFeedback | null
+  /** 应用阶段题目（进入阶段时生成） */
+  tasks: FeynmanTask[]
+  /** 每道题的用户答案 */
+  answers: Record<string, string>
+  /** 每道题的 AI 评分 */
+  answerFeedbacks: Record<string, FeynmanFeedback>
+  /** 完成时的平均分（复述点评与各题评分的均值） */
+  avgScore: number
+  startedAt: number
+  updatedAt: number
 }

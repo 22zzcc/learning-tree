@@ -306,6 +306,7 @@ export default function TreeView({ lineId }: { lineId: string }) {
           <NodePanel
             node={selectedNode}
             parent={selectedParent}
+            lineId={lineId}
             lineTitle={line?.title ?? ''}
             onFocus={() => {
               setFocus(selectedNode.id)

@@ -486,3 +486,101 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #c6d2cc; border-radius: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 费曼 3×30 ---------- */
+
+.feynman { max-width: 720px; }
+
+.btn-lg { padding: 11px 22px; font-size: 15px; border-radius: 10px; font-weight: 600; }
+
+.feynman-steps { display: flex; gap: 8px; }
+
+.feynman-step {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: #9aa5a1;
+}
+
+.feynman-step.done { border-color: #b9dfc7; background: #eef8f2; color: var(--accent); }
+.feynman-step.current { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); box-shadow: 0 0 0 2px rgba(46, 125, 91, 0.12); }
+
+.feynman-step-icon { font-size: 18px; }
+
+.feynman-step-label { display: flex; flex-direction: column; font-weight: 600; font-size: 14px; }
+.feynman-step-min { font-size: 11px; font-weight: 400; opacity: 0.75; }
+
+.feynman-hint { margin: 0; color: #6b7d74; font-size: 13.5px; }
+
+.feynman-timer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fafcfb;
+  flex-wrap: wrap;
+}
+
+.feynman-timer.done { border-color: #ecd9b8; background: #fdf6ea; }
+
+.feynman-timer-clock { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+.feynman-timer-actions { display: flex; gap: 8px; }
+
+.feynman-material, .feynman-retell, .feynman-apply { display: flex; flex-direction: column; gap: 12px; }
+
+.feynman-material .section { border-top: 1px dashed var(--border); padding-top: 8px; }
+
+.feynman-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+  background: #fff;
+}
+
+.feynman-task {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fff;
+}
+
+.feynman-task h4 { margin: 0; font-size: 14px; line-height: 1.5; }
+
+.feynman-feedback {
+  border: 1px solid #b9dfc7;
+  background: #f2faf5;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.feynman-score { display: flex; align-items: baseline; gap: 4px; }
+.feynman-score-num { font-size: 30px; font-weight: 800; color: var(--accent); }
+.feynman-score-total { color: #6b7d74; font-size: 13px; }
+
+.feynman-fb-block h5 { margin: 0 0 4px; font-size: 13px; }
+.feynman-fb-block ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.feynman-fb-block p { margin: 0; font-size: 13px; }
+
+.feynman-done { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; padding: 10px 0; }
+.feynman-done-emoji { font-size: 44px; }
+.feynman-done h3 { margin: 0; }

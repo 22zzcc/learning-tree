@@ -5,7 +5,7 @@
 //   3. 自由泳入门（运动技能，全部边未点亮，供体验「点亮关联」功能）
 
 import { db, uid, getSettings, saveSettings } from '../db'
-import type { LearningLine, TreeNode, NodeState, ChecklistItem } from '../types'
+import type { LearningLine, TreeNode, NodeState, ChecklistItem, FeynmanFeedback, FeynmanTask } from '../types'
 
 export const DEMO_VERSION = 3
 
@@ -600,4 +600,108 @@ export async function ensureDemoSeed(): Promise<void> {
     await seedDemoData()
   }
   await saveSettings({ demoVersion: DEMO_VERSION })
+}
+
+// ---------- 费曼 3×30 演示反馈（未配置 API Key 时的规则版） ----------
+
+const FEYNMAN_STOP_WORDS = new Set([
+  '一个', '这个', '那个', '就是', '表示', '进行', '可以', '通过', '以及', '对于',
+  '它们', '因为', '所以', '或者', '什么', '怎么', '如何', '中的', '上的', '一种',
+  '用它', '得到', '能够', '比如', '例如', '每个', '两个', '三个', '然后', '自己'
+])
+
+/** 从节点材料中抽取用于判分的关键词（演示模式的朴素「知识点覆盖」判定） */
+function feynmanKeyTerms(node: Pick<TreeNode, 'definition' | 'principle' | 'test'>): string[] {
+  const text = [node.definition, node.principle ?? '', node.test ?? ''].join(' ')
+  const words = text
+    .replace(/[，。、；：！？,.!?;:()（）【】《》"'“”‘’\-—\d]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !FEYNMAN_STOP_WORDS.has(w))
+  return [...new Set(words)].slice(0, 20)
+}
+
+/** 复述点评：覆盖关键词越多、写得越长，分越高（演示模式规则） */
+export function demoFeynmanRetellFeedback(
+  node: Pick<TreeNode, 'name' | 'definition' | 'principle'>,
+  retell: string
+): FeynmanFeedback {
+  const terms = feynmanKeyTerms(node)
+  const text = retell.trim()
+  const covered = terms.filter((t) => text.includes(t))
+  const missed = terms.filter((t) => !text.includes(t))
+  const coverage = terms.length === 0 ? 0 : covered.length / terms.length
+  let score = Math.round(coverage * 70)
+  if (text.length >= 60) score += 10
+  if (text.length >= 140) score += 10
+  if (text.length < 20) score = Math.min(score, 20)
+  score = Math.max(0, Math.min(100, score))
+  const strengths = covered.slice(0, 3).map((t) => '用自己的话覆盖了关键点「' + t + '」')
+  if (strengths.length === 0) strengths.push('愿意开口复述就是好的开始')
+  const gaps = missed.slice(0, 4).map((t) => '漏掉了关键点「' + t + '」，回原文看一眼它是怎么来的')
+  if (text.length < 20) gaps.unshift('复述太短：至少讲清楚「是什么、为什么、怎么用」三件事')
+  const suggestion =
+    score >= 80
+      ? '讲得很完整，可以进入「举例应用」检验是否真的会用'
+      : score >= 50
+        ? '框架有了，把上面列出的缺口补进你的复述，再提交一次'
+        : '回到「理解」阶段重新读一遍定义与原理，用「是什么 → 为什么 → 例子」的顺序再讲一次'
+  return { score, strengths: strengths.slice(0, 3), gaps: gaps.slice(0, 5), suggestion }
+}
+
+/** 应用出题：从实践任务 / 掌握标准 + 通用费曼追问生成 2~3 题 */
+export function demoFeynmanTasks(node: Pick<TreeNode, 'name' | 'test' | 'practice'>): FeynmanTask[] {
+  const tasks: FeynmanTask[] = []
+  if (node.practice) {
+    tasks.push({
+      id: 't-practice',
+      question: '完成最小实践任务，并用自己的话记录你做了什么、为什么有效：' + node.practice
+    })
+  }
+  if (node.test) {
+    tasks.push({
+      id: 't-test',
+      question: '按掌握标准自我检验一遍，把关键步骤写下来：' + node.test,
+      hint: '不必写得完美，重点是暴露卡住的地方'
+    })
+  }
+  tasks.push({
+    id: 't-explain',
+    question: '假设要给一个完全没学过的人讲「' + node.name + '」，把你要讲的第一段话写出来。'
+  })
+  tasks.push({
+    id: 't-own',
+    question: '从你的生活或工作里找一个用得上「' + node.name + '」的真实场景，描述你会怎么用它。',
+    hint: '例子的质量比数量重要'
+  })
+  return tasks.slice(0, 3)
+}
+
+/** 答题评分：长度 + 覆盖任务关键词（演示模式规则） */
+export function demoFeynmanAnswerFeedback(
+  node: Pick<TreeNode, 'name' | 'test'>,
+  task: FeynmanTask,
+  answer: string
+): FeynmanFeedback {
+  const text = answer.trim()
+  const terms = [...feynmanKeyTerms({ definition: task.question, test: node.test ?? '' }), node.name]
+    .filter((t) => t.length >= 2)
+    .slice(0, 8)
+  const covered = terms.filter((t) => text.includes(t))
+  let score = 20
+  if (text.length >= 30) score += 20
+  if (text.length >= 80) score += 20
+  score += Math.min(30, covered.length * 10)
+  if (text.length < 15) score = Math.min(score, 15)
+  score = Math.max(0, Math.min(100, score))
+  const strengths = covered.length > 0 ? ['回答中提到了「' + covered.slice(0, 2).join('」「') + '」等要点'] : ['开始作答就是进步']
+  const gaps: string[] = []
+  if (text.length < 30) gaps.push('回答太短：至少写 30 字，把思路展开')
+  if (node.test && !text.includes(node.test.slice(0, 2))) gaps.push('试着对照掌握标准检查：你验证到自己真的会了吗？')
+  const suggestion =
+    score >= 80
+      ? '回答扎实，可以进入下一题'
+      : score >= 50
+        ? '方向对了，把缺口补上再提交一次'
+        : '回到「复述」阶段把概念讲清楚，再来回答这道题'
+  return { score, strengths: strengths.slice(0, 2), gaps: gaps.slice(0, 3), suggestion }
 }

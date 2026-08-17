@@ -8,16 +8,25 @@ export interface Toast {
   kind: 'info' | 'error' | 'success'
 }
 
+export interface FeynmanTarget {
+  lineId: string
+  nodeId: string
+}
+
 interface AppState {
   tab: Tab
   activeLineId: string | null
   selectedNodeId: string | null
   focusNodeId: string | null
   toasts: Toast[]
+  /** 正在进行的费曼 3×30 学习目标（打开覆盖层） */
+  feynman: FeynmanTarget | null
   go: (tab: Tab) => void
   openLine: (id: string) => void
   selectNode: (id: string | null) => void
   setFocus: (id: string | null) => void
+  openFeynman: (lineId: string, nodeId: string) => void
+  closeFeynman: () => void
   toast: (text: string, kind?: Toast['kind']) => void
   dismissToast: (id: number) => void
 }
@@ -30,10 +39,13 @@ export const useAppStore = create<AppState>((set) => ({
   selectedNodeId: null,
   focusNodeId: null,
   toasts: [],
+  feynman: null,
   go: (tab) => set({ tab }),
   openLine: (id) => set({ activeLineId: id, focusNodeId: null, selectedNodeId: null, tab: 'tree' }),
   selectNode: (id) => set({ selectedNodeId: id }),
   setFocus: (id) => set({ focusNodeId: id, selectedNodeId: id }),
+  openFeynman: (lineId, nodeId) => set({ feynman: { lineId, nodeId } }),
+  closeFeynman: () => set({ feynman: null }),
   toast: (text, kind = 'info') => {
     const id = toastSeq++
     set((s) => ({ toasts: [...s.toasts, { id, text, kind }] }))

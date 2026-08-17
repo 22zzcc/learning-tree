@@ -1,7 +1,8 @@
 import { useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
 import type { TreeNode } from '../types'
-import { STATE_LABEL, STATE_COLOR, STATE_MASTERY, stateFromMastery } from '../types'
+import { STATE_LABEL, STATE_COLOR, STATE_MASTERY, stateFromMastery, FEYNMAN_STAGES } from '../types'
 import { aiLightEdge, aiDecomposeNode } from '../lib/ai'
 import { useAppStore } from '../store/appStore'
 
@@ -10,19 +11,26 @@ const STATES: TreeNode['state'][] = ['unlearned', 'learning', 'mastered', 'fuzzy
 export default function NodePanel({
   node,
   parent,
+  lineId,
   lineTitle,
   onFocus,
   onDeleteBranch
 }: {
   node: TreeNode
   parent: TreeNode | null
+  lineId: string
   lineTitle: string
   onFocus: () => void
   onDeleteBranch: () => void
 }) {
   const toast = useAppStore((s) => s.toast)
+  const openFeynman = useAppStore((s) => s.openFeynman)
   const [lighting, setLighting] = useState(false)
   const [decomposing, setDecomposing] = useState(false)
+  const feynman = useLiveQuery(
+    () => db.feynman.where('nodeId').equals(node.id).sortBy('updatedAt').then((rows) => rows[rows.length - 1] ?? null),
+    [node.id]
+  )
   const mastery = node.mastery ?? STATE_MASTERY[node.state]
 
   async function setState(state: TreeNode['state']) {
@@ -182,6 +190,15 @@ export default function NodePanel({
       )}
 
       <div className="section" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button
+          className="btn btn-primary"
+          onClick={() => openFeynman(lineId, node.id)}
+          title="费曼学习法：理解 30 分钟 → 复述 30 分钟 → 举例应用 30 分钟，AI 全程点评"
+        >
+          {feynman && feynman.status === 'active'
+            ? '🎓 继续费曼 3×30（阶段 ' + (FEYNMAN_STAGES.indexOf(feynman.stage) + 1) + '/3）'
+            : '🎓 费曼 3×30 学习（理解 → 复述 → 应用）'}
+        </button>
         <button className="btn btn-primary" onClick={decompose} disabled={decomposing}>
           {decomposing ? 'AI 分解中…' : '🔬 继续分解此节点（不够原子就再拆）'}
         </button>
