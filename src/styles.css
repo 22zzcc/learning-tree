@@ -694,3 +694,73 @@ input:focus, textarea:focus { outline: 2px solid #a9d4bd; border-color: var(--ac
 
 .incentive-badge.unlocked { border-color: #e6c35c; background: #fff8e6; box-shadow: 0 2px 6px rgba(230, 180, 34, 0.25); }
 .incentive-badge.locked { opacity: 0.5; font-size: 12px; }
+
+/* ---------- 复盘 ---------- */
+
+.review-week { margin-bottom: 18px; }
+
+.review-week-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.review-week-head h3 { margin: 0; }
+
+.review-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.review-ai {
+  margin-top: 14px;
+  border: 1px solid #b9dfc7;
+  background: #f2faf5;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.review-ai h4 { margin: 0 0 6px; }
+.review-ai p { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+
+.review-notebook { display: flex; flex-direction: column; gap: 10px; }
+
+.review-note {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-note-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.review-note-title { font-weight: 600; font-size: 14px; }
+
+.review-note-score {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.review-note-score.good { background: #eef8f2; color: var(--accent); border-color: #b9dfc7; }
+.review-note-score.mid { background: #fdf6ea; color: #b07a12; border-color: #ecd9b8; }
+.review-note-score.low { background: #fdf0ef; color: var(--danger); border-color: #f0c8c4; }
+
+.review-note-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fafcfb;
+  border-left: 3px solid var(--accent-soft);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.review-note-gaps { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; color: #8a6116; }

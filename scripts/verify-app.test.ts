@@ -4,13 +4,14 @@ import { JSDOM } from 'jsdom'
 import { writeFileSync } from 'node:fs'
 import * as d3 from 'd3'
 import { db, uid } from '../src/db'
-import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes } from '../src/lib/demo'
+import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes, demoWeeklyReview } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
-import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback } from '../src/lib/ai'
+import { aiLightEdge, aiDecomposeNode, aiAutoDecompose, aiGoalSpec, aiGenerateTree, moduleModel, nodeNameIsAtomic, nodeIsAtomic, aiBuildDiagnosticQuiz, aiEvaluateAnswer, aiFeynmanRetellFeedback, aiFeynmanTasks, aiFeynmanAnswerFeedback, aiWeeklyReview } from '../src/lib/ai'
 import { feynmanRemainingSeconds, feynmanStageSeconds, feynmanNextStage, feynmanSessionInit, feynmanAvgScore, feynmanCompletionBoost } from '../src/lib/feynman'
 import { buildDailyPlan, eligibleNodes, nodeMinutes } from '../src/lib/plan'
 import { BADGES, computeStreak, evaluateBadges, dayKey, recordActivity } from '../src/lib/achievements'
+import { computeWeekStats, weekStart, weekLabel } from '../src/lib/review'
 import type { TreeNode, NodeState } from '../src/types'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
@@ -476,6 +477,45 @@ const u4 = await recordActivity('node-mastered', sd.id)
 check('重复活动不再解锁新成就', u4.unlocks.length === 0)
 check('共解锁 5 个成就', (await db.badges.count()) === 5, 'got ' + (await db.badges.count()))
 check('成就定义完整（10 个）', BADGES.length === 10)
+
+// ---- 13. 复述笔记本 + 每周复盘 ----
+
+// 13.1 周界与周标签（2026-08-17 是周一）
+const wedAug19 = new Date(2026, 7, 19, 15).getTime()
+check('weekStart 回到本周一 00:00', weekStart(wedAug19) === new Date(2026, 7, 17).getTime(), new Date(weekStart(wedAug19)).toString())
+check('周标签格式正确', weekLabel(wedAug19) === '2026-08-17 ~ 2026-08-23', weekLabel(wedAug19))
+
+// 13.2 周统计聚合
+const inWeek = weekStart(wedAug19)
+const weekEvents = [
+  { id: 'e1', kind: 'node-mastered' as const, at: inWeek + 1000 },
+  { id: 'e2', kind: 'node-mastered' as const, at: inWeek + 2000 },
+  { id: 'e3', kind: 'edge-lit' as const, at: inWeek + 3000 },
+  { id: 'e4', kind: 'plan-generated' as const, detail: 'extreme', at: inWeek + 4000 },
+  { id: 'e5', kind: 'feynman-done' as const, at: inWeek - 1000 } // 上周
+]
+const weekSessions = [
+  { id: 's1', status: 'done' as const, avgScore: 80, updatedAt: inWeek + 5000 },
+  { id: 's2', status: 'done' as const, avgScore: 60, updatedAt: inWeek + 6000 },
+  { id: 's3', status: 'done' as const, avgScore: 99, updatedAt: inWeek - 2000 } // 上周
+]
+const ws = computeWeekStats(weekEvents, weekSessions as never[], 4, wedAug19)
+check(
+  '周统计聚合正确（本周事件 + 费曼均分 + 连续天数）',
+  ws.nodeMastered === 2 && ws.edgeLit === 1 && ws.planGenerated === 1 && ws.feynmanDone === 0 && ws.avgFeynmanScore === 70 && ws.streak === 4,
+  JSON.stringify(ws)
+)
+check('本周无费曼完成时均分为 0', computeWeekStats(weekEvents, [], 1, wedAug19).avgFeynmanScore === 0)
+
+// 13.3 AI 周复盘（演示模式模板）
+const reviewText = await aiWeeklyReview(ws)
+check('周复盘生成可用文本（演示模式）', reviewText.length > 20 && reviewText.includes('本周'), reviewText.slice(0, 40))
+check('演示周复盘包含关键数字', reviewText.includes('2 次'))
+const wsWithFeynman = { ...ws, feynmanDone: 2 }
+check('有费曼记录时复盘提到平均分', demoWeeklyReview(wsWithFeynman).includes('70 分'))
+const demoTpl = demoWeeklyReview(ws)
+check('演示模板与 AI 演示路径一致', demoTpl === reviewText)
+check('复盘模块未覆盖时跟随全局默认', moduleModel(fakeSettings, 'review') === 'deepseek-v4-pro')
 
 // ---- 汇总 ----
 console.log('')

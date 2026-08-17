@@ -3,7 +3,8 @@
 import { getSettings, uid } from '../db'
 import type { LearningLine, TreeNode, OnboardingSession, ChecklistItem, DecomposeDepth, LineCategory, AiModule, Settings, GoalSpec, GenerationMeta, FeynmanFeedback, FeynmanTask } from '../types'
 import { deepseekChat, extractJson } from './deepseek'
-import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, demoFeynmanRetellFeedback, demoFeynmanTasks, demoFeynmanAnswerFeedback, type DemoNodeSpec } from './demo'
+import { demoChatQuestion, demoChecklist, demoTreeSpec, demoLightEdge, demoDecompose, demoSpecForTitle, demoFeynmanRetellFeedback, demoFeynmanTasks, demoFeynmanAnswerFeedback, demoWeeklyReview, type DemoNodeSpec } from './demo'
+import type { WeekStats } from './review'
 
 export function isDemoMode(settings: { apiKey: string }): boolean {
   return !settings.apiKey
@@ -1152,4 +1153,35 @@ export async function aiFeynmanAnswerFeedback(
     { json: true, temperature: 0.5, model: moduleModel(settings, 'feynman') }
   )
   return parseFeynmanFeedback(res, '答题评分失败：AI 返回无法解析的内容')
+}
+
+// ---- 每周复盘：学习数据总结与下周建议 ----
+
+const WEEKLY_REVIEW_SYSTEM = [
+  '你是学习复盘教练。你会收到一周的学习数据统计，请输出一段 150 字以内的中文复盘。',
+  '要求：',
+  '1. 先肯定本周做得好的地方（具体到数字）；',
+  '2. 指出最值得改进的一点（结合费曼平均分与连续天数）；',
+  '3. 给出下周的一条具体行动建议（可执行、可检验）；',
+  '4. 语气鼓励但不空洞，不要客套，不要用标题或列表，直接成段。'
+].join('\n')
+
+/** 每周复盘：根据本周统计数据生成总结与下周建议 */
+export async function aiWeeklyReview(stats: WeekStats): Promise<string> {
+  const settings = await getSettings()
+  if (isDemoMode(settings)) return demoWeeklyReview(stats)
+  return await deepseekChat(
+    settings,
+    [
+      { role: 'system', content: WEEKLY_REVIEW_SYSTEM },
+      {
+        role: 'user',
+        content:
+          '本周学习数据：掌握概念 ' + stats.nodeMastered + ' 次、点亮关联 ' + stats.edgeLit + ' 次、完成费曼学习 ' +
+          stats.feynmanDone + ' 次、生成学习计划 ' + stats.planGenerated + ' 次；费曼复述平均分 ' + stats.avgFeynmanScore +
+          '；当前连续学习 ' + stats.streak + ' 天。请给出本周复盘。'
+      }
+    ],
+    { temperature: 0.6, maxTokens: 500, model: moduleModel(settings, 'review') }
+  )
 }

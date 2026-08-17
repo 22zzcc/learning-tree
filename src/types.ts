@@ -89,7 +89,7 @@ export interface Settings {
 }
 
 /** 使用 AI 的功能模块 */
-export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman'
+export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman' | 'review'
 
 export const AI_MODULE_LABELS: Record<AiModule, string> = {
   chat: '摸底聊天（新建学习线时的 3 轮问答）',
@@ -97,7 +97,8 @@ export const AI_MODULE_LABELS: Record<AiModule, string> = {
   skeleton: '能力图谱骨架（生成大类与章节）',
   decompose: '深度分解（自动/手动拆到原子单元）',
   lightEdge: '边点亮（概念间的例子与为什么）',
-  feynman: '费曼反馈（复述点评 + 应用出题与评分）'
+  feynman: '费曼反馈（复述点评 + 应用出题与评分）',
+  review: '每周复盘（学习数据总结与下周建议）'
 }
 
 export interface ChatMessage {

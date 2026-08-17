@@ -6,6 +6,7 @@
 
 import { db, uid, getSettings, saveSettings } from '../db'
 import type { LearningLine, TreeNode, NodeState, ChecklistItem, FeynmanFeedback, FeynmanTask } from '../types'
+import type { WeekStats } from './review'
 
 export const DEMO_VERSION = 3
 
@@ -704,4 +705,22 @@ export function demoFeynmanAnswerFeedback(
         ? '方向对了，把缺口补上再提交一次'
         : '回到「复述」阶段把概念讲清楚，再来回答这道题'
   return { score, strengths: strengths.slice(0, 2), gaps: gaps.slice(0, 3), suggestion }
+}
+
+// ---------- 每周复盘（演示模式模板） ----------
+
+export function demoWeeklyReview(stats: WeekStats): string {
+  const total = stats.nodeMastered + stats.edgeLit + stats.feynmanDone + stats.planGenerated
+  const lines: string[] = []
+  lines.push('本周回顾（演示模式模板，接入 API Key 后可获得 AI 个性化复盘）：')
+  lines.push('')
+  lines.push('- 本周共产生 ' + total + ' 次学习活动：掌握概念 ' + stats.nodeMastered + ' 次、点亮关联 ' + stats.edgeLit + ' 次、完成费曼学习 ' + stats.feynmanDone + ' 次、生成学习计划 ' + stats.planGenerated + ' 次。')
+  lines.push('- 当前连续学习 ' + stats.streak + ' 天' + (stats.streak >= 3 ? '，势头很好，继续保持！' : '，距离 3 天小目标还差 ' + Math.max(0, 3 - stats.streak) + ' 天。') + '')
+  if (stats.feynmanDone > 0 && stats.avgFeynmanScore > 0) {
+    lines.push('- 本周费曼复述平均分 ' + stats.avgFeynmanScore + ' 分：' + (stats.avgFeynmanScore >= 80 ? '讲得很透，可以挑战更难的节点。' : stats.avgFeynmanScore >= 60 ? '框架已成型，多补缺口、多举自己的例子。' : '建议放慢节奏，宁可少学一个概念也要把它讲清楚。'))
+  } else {
+    lines.push('- 本周还没有完成费曼学习：挑一个模糊（🟡）的节点跑一轮「理解→复述→应用」，比刷三个新概念更值。')
+  }
+  lines.push('- 下周建议：优先清掉「模糊」节点；每天给「今日学习计划」输入真实可用的分钟数，按计划推进。')
+  return lines.join('\n')
 }

@@ -6,6 +6,7 @@ import { useAppStore, type Tab } from './store/appStore'
 import Home from './components/Home'
 import TreeView from './components/TreeView'
 import Profile from './components/Profile'
+import Review from './components/Review'
 import Settings from './components/Settings'
 import OnboardingWizard from './components/OnboardingWizard'
 import FeynmanStudy from './components/FeynmanStudy'
@@ -14,6 +15,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'home', label: '🏠 学习线' },
   { id: 'tree', label: '🌳 知识树' },
   { id: 'profile', label: '🧠 我会什么' },
+  { id: 'review', label: '📓 复盘' },
   { id: 'settings', label: '⚙️ 设置' }
 ]
 
@@ -81,6 +83,7 @@ export default function App() {
         )}
         {tab === 'tree' && (activeLineId ? <TreeView lineId={activeLineId} /> : <EmptyTreePrompt />)}
         {tab === 'profile' && <Profile />}
+        {tab === 'review' && <Review />}
         {tab === 'settings' && <Settings />}
       </main>
       {showWizard && <OnboardingWizard initialCategory={wizardCategory} onClose={() => setShowWizard(false)} />}
