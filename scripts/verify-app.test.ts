@@ -3,7 +3,7 @@ import './fake-idb-setup'
 import { JSDOM } from 'jsdom'
 import { writeFileSync } from 'node:fs'
 import * as d3 from 'd3'
-import { db, uid } from '../src/db'
+import { db, uid, exportAllDataObject, type SyncPayload } from '../src/db'
 import { ensureDemoSeed, demoTreeSpec, removeMistakeNodes, demoWeeklyReview, demoHighDimInterpretation } from '../src/lib/demo'
 import { buildTree, computeStats } from '../src/lib/treeUtils'
 import { renderTree } from '../src/lib/renderTree'
@@ -12,6 +12,7 @@ import { feynmanRemainingSeconds, feynmanStageSeconds, feynmanNextStage, feynman
 import { buildDailyPlan, eligibleNodes, nodeMinutes } from '../src/lib/plan'
 import { BADGES, computeStreak, evaluateBadges, dayKey, recordActivity } from '../src/lib/achievements'
 import { computeWeekStats, weekStart, weekLabel } from '../src/lib/review'
+import { mergeAllData, applySyncPayload } from '../src/lib/sync'
 import type { TreeNode, NodeState } from '../src/types'
 
 console.log('[debug] globalThis.indexedDB =', typeof (globalThis as any).indexedDB)
@@ -533,6 +534,40 @@ if (tmpNode) {
 }
 check('高维解读可清除', (await db.nodes.get(td.root!.id))?.highDim === undefined)
 check('高维模块未覆盖时跟随全局默认', moduleModel(fakeSettings, 'highdim') === 'deepseek-v4-pro')
+
+// ---- 15. 多设备同步（合并 + 应用；本段最后执行，会重放数据库） ----
+
+const localPayload = await exportAllDataObject()
+const firstNode = localPayload.nodes[0]
+const remotePayload: SyncPayload = {
+  version: 3,
+  exportedAt: new Date().toISOString(),
+  lines: localPayload.lines.slice(1), // 远程缺第一条线 → 合并后应保留
+  nodes: [
+    { ...firstNode, definition: 'remote-newer', updatedAt: firstNode.updatedAt + 10000 },
+    { ...localPayload.nodes[1], id: 'remote-only-node', updatedAt: Date.now() + 99999 }
+  ],
+  profile: [],
+  settings: [{ ...localPayload.settings[0], apiKey: 'sk-remote', model: 'deepseek-reasoner' }],
+  onboarding: [],
+  feynman: [],
+  activity: [],
+  badges: []
+}
+const merged = mergeAllData(localPayload, remotePayload)
+check('合并后节点为并集（本地 + 远程独有）', merged.nodes.length === localPayload.nodes.length + 1, 'got ' + merged.nodes.length)
+const mergedFirst = merged.nodes.find((n) => n.id === firstNode.id)
+check('同 id 冲突时时间戳新者胜', mergedFirst?.definition === 'remote-newer', mergedFirst?.definition)
+check('远程缺失的本地学习线被保留', merged.lines.length === localPayload.lines.length, 'got ' + merged.lines.length)
+const mergedSettings = merged.settings.find((s) => s.id === 'app')
+check('settings 字段级合并（本地空字段用远程补）', mergedSettings?.apiKey === 'sk-remote', mergedSettings?.apiKey)
+check('settings 本地非空字段不被远程覆盖', mergedSettings?.model === localPayload.settings[0].model)
+const mergedNoRemote = mergeAllData(localPayload, null)
+check('远程无文件时合并结果等于本地', mergedNoRemote.nodes.length === localPayload.nodes.length)
+await applySyncPayload(merged)
+check('合并结果应用到数据库（节点数一致）', (await db.nodes.count()) === merged.nodes.length)
+check('应用后设置生效（API Key 已带过来）', (await db.settings.get('app'))?.apiKey === 'sk-remote')
+check('本地独有学习线仍在', (await db.lines.count()) === merged.lines.length)
 
 // ---- 汇总 ----
 console.log('')

@@ -4,12 +4,14 @@ import { db, saveSettings, exportAllData, getSettings } from '../db'
 import { useAppStore } from '../store/appStore'
 import { deepseekChat } from '../lib/deepseek'
 import { moduleModel } from '../lib/ai'
+import { syncWithDirectory } from '../lib/sync'
 import { AI_MODULE_LABELS, type AiModule } from '../types'
 
 export default function Settings() {
   const settings = useLiveQuery(() => getSettings(), [])
   const toast = useAppStore((s) => s.toast)
   const [testing, setTesting] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
   const [draft, setDraft] = useState<{ apiKey: string; apiBase: string; model: string; depth: 'standard' | 'deep' } | null>(null)
 
   if (!settings) return <div className="muted">加载中…</div>
@@ -94,6 +96,48 @@ export default function Settings() {
     if (!window.confirm('确定清空全部数据（学习线、知识树、档案、设置）？此操作不可恢复。')) return
     await db.delete()
     location.reload()
+  }
+
+  async function pickSyncFolder() {
+    const w = window as unknown as { showDirectoryPicker?: (o?: { mode?: string }) => Promise<{ name: string }> }
+    if (!w.showDirectoryPicker) {
+      toast('当前浏览器不支持文件夹访问，请用 Chrome / Edge 桌面版', 'error')
+      return
+    }
+    try {
+      const handle = await w.showDirectoryPicker({ mode: 'readwrite' })
+      await db.kv.put({ id: 'sync-dir', handle })
+      await saveSettings({ syncFolderName: handle.name })
+      toast('同步文件夹已选择：' + handle.name + '（建议选云盘同步目录）', 'success')
+    } catch (e) {
+      if ((e as { name?: string })?.name !== 'AbortError') toast('选择文件夹失败：' + (e as Error).message, 'error')
+    }
+  }
+
+  async function syncNow() {
+    const row = await db.kv.get('sync-dir')
+    const handle = row?.handle as (FileSystemDirectoryHandle & { queryPermission?: (o: { mode: string }) => Promise<string>; requestPermission?: (o: { mode: string }) => Promise<string> }) | undefined
+    if (!handle) {
+      toast('请先选择同步文件夹', 'error')
+      return
+    }
+    if (handle.queryPermission && handle.requestPermission) {
+      if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
+        if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') {
+          toast('需要文件夹读写权限才能同步', 'error')
+          return
+        }
+      }
+    }
+    setSyncBusy(true)
+    try {
+      const summary = await syncWithDirectory(handle)
+      toast('同步完成：' + (summary.remoteFound ? '已与远程文件双向合并' : '已首次导出同步文件') + '，以后每台设备点「立即同步」即可', 'success')
+    } catch (e) {
+      toast('同步失败：' + (e as Error).message, 'error')
+    } finally {
+      setSyncBusy(false)
+    }
   }
 
   return (
@@ -233,11 +277,33 @@ export default function Settings() {
       </div>
 
       <div className="card settings-block">
+        <h3>🌐 多设备同步</h3>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          选择一个云盘同步目录（如 OneDrive / 坚果云文件夹），点「立即同步」把全部数据写为{' '}
+          <code>xueshu-sync.json</code>；在另一台设备选同一个文件夹再同步一次即完成双向合并
+          （每张表按 id 合并、后修改的胜出，API Key 也会带过去）。
+        </p>
+        {settings.syncFolderName && (
+          <p className="muted small">
+            📁 同步文件夹：{settings.syncFolderName}
+            {settings.lastSyncAt ? ' · 上次同步：' + new Date(settings.lastSyncAt).toLocaleString() : ''}
+          </p>
+        )}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={pickSyncFolder}>
+            {settings.syncFolderName ? '更换同步文件夹' : '选择同步文件夹'}
+          </button>
+          <button className="btn btn-primary" onClick={syncNow} disabled={syncBusy || !settings.syncFolderName}>
+            {syncBusy ? '同步中…' : '立即同步'}
+          </button>
+        </div>
+      </div>
+
+      <div className="card settings-block">
         <h3>ℹ️ 关于</h3>
         <p className="muted small" style={{ marginTop: 0 }}>
-          当前版本：1.0 主线（目标摸底 → 知识树 → 图片导出）+ 2.0 费曼学习法 3×30、
-          弹性时长与挑战模式、娱乐激励正反馈、复述笔记本与周复盘、高维认知解读。
-          后续版本规划：多设备同步。
+          当前版本：1.0 主线（目标摸底 → 知识树 → 图片导出）+ 2.0 完整路线图（费曼 3×30、
+          弹性时长与挑战模式、娱乐激励正反馈、复述笔记本与周复盘、高维认知解读、多设备同步）。
         </p>
       </div>
     </div>

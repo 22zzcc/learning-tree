@@ -97,6 +97,10 @@ export interface Settings {
   decomposeNoThinking: boolean
   /** 演示数据版本号：升级演示数据时递增，用于老用户刷新 */
   demoVersion: number
+  /** 多设备同步：已选择的同步文件夹名 */
+  syncFolderName?: string
+  /** 多设备同步：上次同步时间戳 */
+  lastSyncAt?: number
 }
 
 /** 使用 AI 的功能模块 */

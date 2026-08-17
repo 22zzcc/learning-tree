@@ -10,6 +10,8 @@ export class LearnTreeDB extends Dexie {
   feynman!: Table<FeynmanSession, string>
   activity!: Table<ActivityEvent, string>
   badges!: Table<BadgeRecord, string>
+  /** 通用键值（存同步文件夹的 FileSystemDirectoryHandle 等不可导出对象） */
+  kv!: Table<{ id: string; handle?: unknown }, string>
 
   constructor() {
     super('xueshu-learning-tree')
@@ -39,6 +41,18 @@ export class LearnTreeDB extends Dexie {
       feynman: 'id, lineId, nodeId, status, updatedAt',
       activity: 'id, kind, lineId, at',
       badges: 'id, unlockedAt'
+    })
+    // v4：多设备同步——通用键值表（同步文件夹句柄）
+    this.version(4).stores({
+      lines: 'id, createdAt',
+      nodes: 'id, lineId, parentId, state',
+      profile: 'id, source, addedAt',
+      settings: 'id',
+      onboarding: 'id, lineId',
+      feynman: 'id, lineId, nodeId, status, updatedAt',
+      activity: 'id, kind, lineId, at',
+      badges: 'id, unlockedAt',
+      kv: 'id'
     })
   }
 }
@@ -77,7 +91,21 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   await db.settings.put({ ...cur, ...patch, id: 'app' })
 }
 
-export async function exportAllData(): Promise<string> {
+/** 全量数据负载（导出 / 同步共用） */
+export interface SyncPayload {
+  version: 3
+  exportedAt: string
+  lines: LearningLine[]
+  nodes: TreeNode[]
+  profile: ProfileEntry[]
+  settings: Settings[]
+  onboarding: OnboardingSession[]
+  feynman: FeynmanSession[]
+  activity: ActivityEvent[]
+  badges: BadgeRecord[]
+}
+
+export async function exportAllDataObject(): Promise<SyncPayload> {
   const [lines, nodes, profile, settings, onboarding, feynman, activity, badges] = await Promise.all([
     db.lines.toArray(),
     db.nodes.toArray(),
@@ -88,9 +116,20 @@ export async function exportAllData(): Promise<string> {
     db.activity.toArray(),
     db.badges.toArray()
   ])
-  return JSON.stringify(
-    { version: 3, exportedAt: new Date().toISOString(), lines, nodes, profile, settings, onboarding, feynman, activity, badges },
-    null,
-    2
-  )
+  return {
+    version: 3,
+    exportedAt: new Date().toISOString(),
+    lines,
+    nodes,
+    profile,
+    settings,
+    onboarding,
+    feynman,
+    activity,
+    badges
+  }
+}
+
+export async function exportAllData(): Promise<string> {
+  return JSON.stringify(await exportAllDataObject(), null, 2)
 }
