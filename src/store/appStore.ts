@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type Tab = 'home' | 'tree' | 'profile' | 'review' | 'settings'
+export type Tab = 'home' | 'tree' | 'profile' | 'review' | 'coach' | 'settings'
 
 export interface Toast {
   id: number

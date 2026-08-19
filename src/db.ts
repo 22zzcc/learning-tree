@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { LearningLine, TreeNode, ProfileEntry, Settings, OnboardingSession, FeynmanSession, ActivityEvent, BadgeRecord } from './types'
+import type { LearningLine, TreeNode, ProfileEntry, Settings, OnboardingSession, FeynmanSession, ActivityEvent, BadgeRecord, CoachMessage } from './types'
 
 export class LearnTreeDB extends Dexie {
   lines!: Table<LearningLine, string>
@@ -10,6 +10,8 @@ export class LearnTreeDB extends Dexie {
   feynman!: Table<FeynmanSession, string>
   activity!: Table<ActivityEvent, string>
   badges!: Table<BadgeRecord, string>
+  /** 学习教练 Agent 的对话记录 */
+  coach!: Table<CoachMessage, string>
   /** 通用键值（存同步文件夹的 FileSystemDirectoryHandle 等不可导出对象） */
   kv!: Table<{ id: string; handle?: unknown }, string>
 
@@ -53,6 +55,19 @@ export class LearnTreeDB extends Dexie {
       activity: 'id, kind, lineId, at',
       badges: 'id, unlockedAt',
       kv: 'id'
+    })
+    // v5：学习教练 Agent——对话记录（含工具调用轨迹）
+    this.version(5).stores({
+      lines: 'id, createdAt',
+      nodes: 'id, lineId, parentId, state',
+      profile: 'id, source, addedAt',
+      settings: 'id',
+      onboarding: 'id, lineId',
+      feynman: 'id, lineId, nodeId, status, updatedAt',
+      activity: 'id, kind, lineId, at',
+      badges: 'id, unlockedAt',
+      kv: 'id',
+      coach: 'id, at'
     })
   }
 }

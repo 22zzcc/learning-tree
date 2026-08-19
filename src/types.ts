@@ -12,7 +12,7 @@ export interface GenerationMeta {
   generatedAt: number
   skeletonAttempts: number
   decompositionCalls: number
-  stopReason: 'frontier_exhausted' | 'budget_exceeded' | 'max_nodes_exceeded' | 'skeleton_only' | 'demo_mode'
+  stopReason: 'frontier_exhausted' | 'budget_exceeded' | 'max_nodes_exceeded' | 'skeleton_only' | 'demo_mode' | 'cancelled_by_user'
   complete: boolean
   /** 骨架请求总耗时（毫秒） */
   skeletonMs?: number
@@ -104,7 +104,7 @@ export interface Settings {
 }
 
 /** 使用 AI 的功能模块 */
-export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman' | 'review' | 'highdim'
+export type AiModule = 'chat' | 'checklist' | 'skeleton' | 'decompose' | 'lightEdge' | 'feynman' | 'review' | 'highdim' | 'coach'
 
 export const AI_MODULE_LABELS: Record<AiModule, string> = {
   chat: '摸底聊天（新建学习线时的 3 轮问答）',
@@ -114,7 +114,8 @@ export const AI_MODULE_LABELS: Record<AiModule, string> = {
   lightEdge: '边点亮（概念间的例子与为什么）',
   feynman: '费曼反馈（复述点评 + 应用出题与评分）',
   review: '每周复盘（学习数据总结与下周建议）',
-  highdim: '高维认知解读（认知升级后重新理解同一知识）'
+  highdim: '高维认知解读（认知升级后重新理解同一知识）',
+  coach: '学习教练（对话 Agent：自主调用工具、多步执行）'
 }
 
 export interface ChatMessage {
@@ -267,4 +268,31 @@ export interface FeynmanSession {
   avgScore: number
   startedAt: number
   updatedAt: number
+}
+
+// ---------- 学习教练 Agent（对话 + 工具调用轨迹，JSON 可序列化） ----------
+
+/** 教练执行的一个步骤：思考、工具调用或错误 */
+export interface CoachStep {
+  kind: 'think' | 'tool' | 'error'
+  /** think：调用工具前的思考文字 */
+  text?: string
+  /** tool：工具名 / 参数 JSON / 执行结果 */
+  toolName?: string
+  toolArgs?: string
+  toolResult?: string
+  /** 工具是否执行成功 */
+  ok?: boolean
+}
+
+/** 教练对话中的一条消息（存 IndexedDB） */
+export interface CoachMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  /** assistant 消息携带的执行步骤（工具调用轨迹） */
+  steps?: CoachStep[]
+  /** 本次回答实际使用的模型 */
+  model?: string
+  at: number
 }

@@ -7,6 +7,7 @@ import Home from './components/Home'
 import TreeView from './components/TreeView'
 import Profile from './components/Profile'
 import Review from './components/Review'
+import Coach from './components/Coach'
 import Settings from './components/Settings'
 import OnboardingWizard from './components/OnboardingWizard'
 import FeynmanStudy from './components/FeynmanStudy'
@@ -16,6 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'tree', label: '🌳 知识树' },
   { id: 'profile', label: '🧠 我会什么' },
   { id: 'review', label: '📓 复盘' },
+  { id: 'coach', label: '🤖 教练' },
   { id: 'settings', label: '⚙️ 设置' }
 ]
 
@@ -84,6 +86,7 @@ export default function App() {
         {tab === 'tree' && (activeLineId ? <TreeView lineId={activeLineId} /> : <EmptyTreePrompt />)}
         {tab === 'profile' && <Profile />}
         {tab === 'review' && <Review />}
+        {tab === 'coach' && <Coach />}
         {tab === 'settings' && <Settings />}
       </main>
       {showWizard && <OnboardingWizard initialCategory={wizardCategory} onClose={() => setShowWizard(false)} />}
